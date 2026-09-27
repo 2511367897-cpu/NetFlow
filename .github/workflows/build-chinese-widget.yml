@@ -1,0 +1,55 @@
+name: Build Chinese Widget IPA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-chinese-widget.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reassemble widget patch
+        shell: bash
+        run: |
+          cat .widget_patch/part1.b64 .widget_patch/part2.b64 .widget_patch/part3.b64 .widget_patch/part4.b64 | base64 --decode > /tmp/netflow-widget-patch.zip
+          unzip -t /tmp/netflow-widget-patch.zip
+          unzip -o /tmp/netflow-widget-patch.zip -d .
+          python3 patch_appstore.py "$PWD"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned device app with widget
+        shell: bash
+        run: |
+          rm -rf build Payload
+          xcodebuild             -project NetFlow.xcodeproj             -target NetFlow             -configuration Release             -sdk iphoneos             CONFIGURATION_BUILD_DIR="$PWD/build"             CODE_SIGNING_ALLOWED=NO             build
+          test -d build/NetFlow.app
+          test -d build/NetFlow.app/PlugIns/NetFlowWidget.appex
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          mkdir -p Payload
+          cp -R build/NetFlow.app Payload/NetFlow.app
+          zip -qry NetFlow_4.2.0_Chinese_Widget_unsigned.ipa Payload
+          shasum -a 256 NetFlow_4.2.0_Chinese_Widget_unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetFlow-Chinese-Widget-IPA
+          path: NetFlow_4.2.0_Chinese_Widget_unsigned.ipa
+          if-no-files-found: error
