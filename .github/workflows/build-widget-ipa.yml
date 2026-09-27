@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/build-widget-ipa.yml"
+      - "NetFlow/Views/Components/AppChrome.swift"
   workflow_dispatch:
 
 permissions:
