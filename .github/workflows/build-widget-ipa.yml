@@ -224,7 +224,7 @@ jobs:
                   d.set(now.timeIntervalSince1970, forKey: "widget.updatedAt")
 
                   let last = d.double(forKey: "widget.lastReloadRequest")
-                  if now.timeIntervalSince1970 - last >= 60 {
+                  if now.timeIntervalSince1970 - last >= 10 {
                       d.set(now.timeIntervalSince1970, forKey: "widget.lastReloadRequest")
                       WidgetCenter.shared.reloadTimelines(ofKind: kind)
                   }
@@ -340,7 +340,7 @@ jobs:
               func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> Void) {
                   let now = Date()
                   let entry = Entry(date: now, snapshot: .load())
-                  completion(Timeline(entries: [entry], policy: .after(now.addingTimeInterval(15 * 60))))
+                  completion(Timeline(entries: [entry], policy: .after(now.addingTimeInterval(5 * 60))))
               }
           }
 
