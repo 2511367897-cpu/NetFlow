@@ -18,19 +18,24 @@ enum AppChrome {
 extension View {
     func netFlowSectionTitle() -> some View {
         font(.headline)
+            .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(Color.blue.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+            .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
     }
 
     func netFlowCard(cornerRadius: CGFloat = 18) -> some View {
         padding(AppChrome.cardPadding)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: cornerRadius))
+            .foregroundStyle(.primary)
+            .background(
+                Color(uiColor: .secondarySystemGroupedBackground),
+                in: RoundedRectangle(cornerRadius: cornerRadius)
+            )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(Color.black.opacity(0.65), lineWidth: 1)
+                    .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.75)
             )
     }
 
