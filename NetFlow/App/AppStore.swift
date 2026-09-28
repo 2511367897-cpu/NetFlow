@@ -19,6 +19,8 @@ final class AppStore: ObservableObject {
     private let notificationService = NotificationService()
     private var timerTask: Task<Void, Never>?
     private var hasStarted = false
+    private var lastDiskSaveAt = Date.distantPast
+    private let diskSaveInterval: TimeInterval = 30
 
     init() {
         let loaded = persistence.load()
@@ -82,7 +84,7 @@ final class AppStore: ObservableObject {
         merge(delta: result.delta, from: previousSnapshot.timestamp, to: result.snapshot.timestamp)
         normalizePlanCycle(now: result.snapshot.timestamp)
         checkAlerts()
-        save()
+        save(forcePersistence: false)
 
         if #available(iOS 16.2, *) {
             await NetFlowLiveActivityManager.shared.startOrUpdate(
@@ -255,11 +257,16 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func save() {
-        persistence.save(settings: settings, plan: plan, records: dailyRecords, alerts: alerts)
+    func save(forcePersistence: Bool = true) {
+        let now = Date()
+        if forcePersistence || now.timeIntervalSince(lastDiskSaveAt) >= diskSaveInterval {
+            persistence.save(settings: settings, plan: plan, records: dailyRecords, alerts: alerts)
 
-        if liveSnapshot.timestamp != .distantPast {
-            NetworkSnapshotCache.save(liveSnapshot)
+            if liveSnapshot.timestamp != .distantPast {
+                NetworkSnapshotCache.save(liveSnapshot)
+            }
+
+            lastDiskSaveAt = now
         }
 
         NetFlowWidgetBridge.publish(
