@@ -95,6 +95,7 @@ private struct UsageSnapshot {
     var planUsed: UInt64 = 0
     var planRemaining: UInt64 = 0
     var planUnlimited = false
+    var hasSharedContainer = false
     var hasAppSync = false
     var isPreview = false
     var down: Double = 0
@@ -107,8 +108,15 @@ private enum SharedTrafficStore {
     // 即使重签时 App Group 权限被裁掉，Widget 仍然可以独立工作。
     private static var defaults: UserDefaults { .standard }
 
+    private static var hasSharedContainer: Bool {
+        FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: netFlowGroupID
+        ) != nil
+    }
+
     private static var appGroupDefaults: UserDefaults? {
-        UserDefaults(suiteName: netFlowGroupID)
+        guard hasSharedContainer else { return nil }
+        return UserDefaults(suiteName: netFlowGroupID)
     }
 
     private static let lastAppSyncKey = "widget.local.lastAppSync"
@@ -334,6 +342,7 @@ private enum SharedTrafficStore {
             planUsed: bytes(defaults.double(forKey: SharedKey.planUsed)),
             planRemaining: bytes(defaults.double(forKey: SharedKey.planRemaining)),
             planUnlimited: defaults.bool(forKey: SharedKey.planUnlimited),
+            hasSharedContainer: hasSharedContainer,
             hasAppSync: defaults.double(forKey: lastAppSyncKey) > 0,
             isPreview: false,
             down: defaults.double(forKey: SharedKey.rateDown),
@@ -423,6 +432,7 @@ private struct Provider: TimelineProvider {
                 planUsed: 0,
                 planRemaining: 0,
                 planUnlimited: false,
+                hasSharedContainer: false,
                 hasAppSync: false,
                 isPreview: true,
                 down: 0,
@@ -601,12 +611,20 @@ private struct NetFlowWidgetView: View {
             } else {
                 HStack {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(entry.snapshot.hasAppSync ? "套餐未设置" : "共享权限未生效")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Text(entry.snapshot.hasAppSync ? "请在 App 内设置套餐" : "重签需保留 App Group")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.tertiary)
+                        Text(
+                            entry.snapshot.hasAppSync
+                            ? "套餐未设置"
+                            : (entry.snapshot.hasSharedContainer ? "套餐待同步" : "共享权限未生效")
+                        )
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        Text(
+                            entry.snapshot.hasAppSync
+                            ? "请在 App 内设置套餐"
+                            : (entry.snapshot.hasSharedContainer ? "打开 NetFlow 一次即可" : "重签需保留 App Group")
+                        )
+                        .font(.system(size: 8))
+                        .foregroundStyle(.tertiary)
                     }
                     Spacer()
                     Text(Format.time(entry.snapshot.updatedAt))
@@ -717,12 +735,20 @@ private struct NetFlowWidgetView: View {
             } else {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.snapshot.hasAppSync ? "套餐未设置" : "共享权限未生效")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text(entry.snapshot.hasAppSync ? "请在 App 内设置套餐" : "重签时必须保留 App Group")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
+                        Text(
+                            entry.snapshot.hasAppSync
+                            ? "套餐未设置"
+                            : (entry.snapshot.hasSharedContainer ? "套餐待同步" : "共享权限未生效")
+                        )
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        Text(
+                            entry.snapshot.hasAppSync
+                            ? "请在 App 内设置套餐"
+                            : (entry.snapshot.hasSharedContainer ? "打开 NetFlow 一次后自动同步" : "重签时必须保留 App Group")
+                        )
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
                     }
                     Spacer()
                     speedPair
