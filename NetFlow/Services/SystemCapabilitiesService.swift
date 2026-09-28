@@ -32,13 +32,10 @@ final class SystemCapabilitiesService: ObservableObject {
             }
         }()
 
-        // This traffic-focused build no longer requires location/weather permission.
-        let location: CapabilityState = .available
-
-        let wifiName: CapabilityState = context.connection.isWiFiActive ? .available : .limited
-
+        // Connection-state detection is supported even when Wi-Fi/VPN is currently inactive.
+        let wifiName: CapabilityState = .available
         let publicIP: CapabilityState = context.connection.publicIP == nil ? .limited : .available
-        let vpn: CapabilityState = context.connection.isVPNActive ? .available : .limited
+        let vpn: CapabilityState = .available
 
         let liveActivities: CapabilityState = {
             guard Bundle.main.object(forInfoDictionaryKey: "NSSupportsLiveActivities") as? Bool == true else {
@@ -68,7 +65,6 @@ final class SystemCapabilitiesService: ObservableObject {
             CapabilityItem(id: "reports", titleKey: "cap_reports", detailKey: "cap_reports_detail", systemImage: "doc.richtext", state: .available),
             CapabilityItem(id: "notifications", titleKey: "cap_notifications", detailKey: "cap_notifications_detail", systemImage: "bell.badge", state: notifications),
             CapabilityItem(id: "background", titleKey: "cap_background", detailKey: "cap_background_detail", systemImage: "clock.arrow.circlepath", state: background),
-            CapabilityItem(id: "location", titleKey: "cap_location", detailKey: "cap_location_detail", systemImage: "location", state: location),
             CapabilityItem(id: "ssid", titleKey: "cap_ssid", detailKey: "cap_ssid_detail", systemImage: "wifi", state: wifiName),
             CapabilityItem(id: "public_ip", titleKey: "cap_public_ip", detailKey: "cap_public_ip_detail", systemImage: "network", state: publicIP),
             CapabilityItem(id: "vpn", titleKey: "cap_vpn", detailKey: "cap_vpn_detail", systemImage: "lock.shield", state: vpn),
