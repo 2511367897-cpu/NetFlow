@@ -1,6 +1,5 @@
 import Foundation
 import UIKit
-import CoreLocation
 import UserNotifications
 import ActivityKit
 
@@ -11,8 +10,6 @@ final class SystemCapabilitiesService: ObservableObject {
     func refresh(context: NetworkContextService) async {
         let notificationSettings = await UNUserNotificationCenter.current().notificationSettings()
         let backgroundState = UIApplication.shared.backgroundRefreshStatus
-        _ = CLLocationManager().authorizationStatus
-
         let notifications: CapabilityState = {
             switch notificationSettings.authorizationStatus {
             case .authorized, .provisional, .ephemeral: return .available
@@ -24,9 +21,14 @@ final class SystemCapabilitiesService: ObservableObject {
 
         let background: CapabilityState = {
             switch backgroundState {
-            case .available: return .available
-            case .denied, .restricted: return .unavailable
-            @unknown default: return .unknown
+            case .available:
+                // Ordinary iOS apps cannot continuously sample in the background.
+                // WidgetKit/ActivityKit have their own scheduling rules.
+                return .limited
+            case .denied, .restricted:
+                return .unavailable
+            @unknown default:
+                return .unknown
             }
         }()
 
@@ -73,7 +75,7 @@ final class SystemCapabilitiesService: ObservableObject {
         let enhancedCount = items.filter { $0.state == .available }.count
         let environmentTitle: String
         let environmentDetail: String
-        if hasWidgetExtension && background == .available && notifications == .available {
+        if hasWidgetExtension && liveActivities == .available && notifications == .available {
             environmentTitle = "environment_full"
             environmentDetail = "environment_full_detail"
         } else if enhancedCount >= 6 {
