@@ -6,6 +6,23 @@ import Darwin
 private let netFlowWidgetKind = "NetFlowUsageWidget"
 // A fresh kind avoids migrating the broken AppIntentConfiguration instances.
 private let configuredWidgetKind = "NetFlowPlanWidgetV2"
+private let editableWidgetKind = "NetFlowPlanWidgetV3"
+
+// WidgetKit owns these values for each widget instance. The extension keeps its
+// traffic counters in its own UserDefaults, without an App Group.
+struct EditablePlanIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "设置蜂窝套餐"
+    static var description = IntentDescription("长按小组件并选择“编辑小组件”，直接输入套餐总量和重置日。")
+
+    @Parameter(title: "套餐总量（GB）", default: 30.0)
+    var capacityGB: Double
+
+    @Parameter(title: "每月重置日（1–28）", default: 1)
+    var resetDay: Int
+
+    @Parameter(title: "不限量套餐", default: false)
+    var unlimited: Bool
+}
 
 private enum WidgetPlanSettings {
     private static let defaults = UserDefaults.standard
@@ -192,6 +209,7 @@ private struct UsageSnapshot {
     var resetDay = 1
     var planConfigured = true
     var isEditing = false
+    var inlineSettings = true
 
     var down: Double = 0
     var up: Double = 0
@@ -500,6 +518,7 @@ struct RefreshNetFlowIntent: AppIntent {
         await WidgetTrafficStore.forceRefresh()
         WidgetCenter.shared.reloadTimelines(ofKind: netFlowWidgetKind)
         WidgetCenter.shared.reloadTimelines(ofKind: configuredWidgetKind)
+        WidgetCenter.shared.reloadTimelines(ofKind: editableWidgetKind)
         return .result()
     }
 }
@@ -556,6 +575,37 @@ private struct Provider: TimelineProvider {
         )
         snapshot.planConfigured = includesPlan && WidgetPlanSettings.configured
         snapshot.isEditing = includesPlan && WidgetPlanSettings.editing
+        return NetFlowEntry(date: now, snapshot: snapshot)
+    }
+}
+
+private struct EditablePlanProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> NetFlowEntry {
+        let original = Provider(includesPlan: true).placeholder(in: context)
+        var snapshot = original.snapshot
+        snapshot.inlineSettings = false
+        return NetFlowEntry(date: original.date, snapshot: snapshot)
+    }
+
+    func snapshot(for configuration: EditablePlanIntent, in context: Context) async -> NetFlowEntry {
+        context.isPreview ? placeholder(in: context) : entry(for: configuration, now: Date())
+    }
+
+    func timeline(for configuration: EditablePlanIntent, in context: Context) async -> Timeline<NetFlowEntry> {
+        let now = Date()
+        return Timeline(entries: [entry(for: configuration, now: now)],
+                        policy: .after(now.addingTimeInterval(5 * 60)))
+    }
+
+    private func entry(for configuration: EditablePlanIntent, now: Date) -> NetFlowEntry {
+        var snapshot = WidgetTrafficStore.sampleAndLoad(
+            planCapacityGB: configuration.capacityGB,
+            resetDay: configuration.resetDay,
+            unlimited: configuration.unlimited,
+            now: now
+        )
+        snapshot.planConfigured = true
+        snapshot.inlineSettings = false
         return NetFlowEntry(date: now, snapshot: snapshot)
     }
 }
@@ -636,7 +686,7 @@ private struct NetFlowWidgetView: View {
                     .foregroundStyle(.indigo)
                 Spacer()
                 refreshButton
-                if entry.snapshot.planConfigured { editButton }
+                if entry.snapshot.planConfigured && entry.snapshot.inlineSettings { editButton }
             }
 
             HStack(spacing: 10) {
@@ -706,10 +756,87 @@ private struct NetFlowWidgetView: View {
         Group {
             if entry.snapshot.isEditing {
                 mediumSettings
+            } else if entry.snapshot.planConfigured && !entry.snapshot.inlineSettings {
+                mediumEditableOverview
             } else {
                 mediumOverview
             }
         }
+    }
+
+    private var mediumEditableOverview: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Label("NetFlow", systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.indigo)
+                Spacer()
+                Text("更新 " + Format.time(entry.snapshot.updatedAt))
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                refreshButton
+            }
+
+            HStack(spacing: 8) {
+                mediumMetric("今日", entry.snapshot.todayTotal, "sun.max.fill", .orange)
+                mediumMetric("本月", entry.snapshot.monthTotal, "calendar", .indigo)
+                mediumMetric("累计", entry.snapshot.allTimeTotal, "sum", .cyan)
+            }
+
+            Rectangle()
+                .fill(Color.indigo.opacity(0.12))
+                .frame(height: 1)
+
+            if entry.snapshot.isPreview {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("等待下次采样").font(.system(size: 13, weight: .bold))
+                    Text("长按小组件 → 编辑小组件，输入套餐总量")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                }
+            } else if entry.snapshot.planUnlimited {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("蜂窝套餐").font(.system(size: 9)).foregroundStyle(.secondary)
+                        Text("不限量").font(.system(size: 18, weight: .bold, design: .rounded))
+                    }
+                    Spacer()
+                    speedPair
+                }
+            } else {
+                HStack(alignment: .bottom) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("本周期剩余 · 每月 \(entry.snapshot.resetDay) 日重置")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                        Text(Format.bytes(entry.snapshot.planRemaining))
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+                    Spacer(minLength: 6)
+                    Text("\(planPercent)%")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(planProgress >= 0.9 ? .red : .indigo)
+                }
+
+                ProgressView(value: planProgress)
+                    .tint(planProgress >= 0.9 ? .red : .indigo)
+
+                HStack {
+                    Text("已用 " + Format.bytes(entry.snapshot.planUsed)
+                         + " / " + Format.bytes(entry.snapshot.planCapacity))
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Spacer(minLength: 6)
+                    speedPair
+                }
+            }
+        }
+        .padding(13)
+        .widgetBackground()
     }
 
     private var mediumOverview: some View {
@@ -723,7 +850,7 @@ private struct NetFlowWidgetView: View {
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
                 refreshButton
-                if entry.snapshot.planConfigured { editButton }
+                if entry.snapshot.planConfigured && entry.snapshot.inlineSettings { editButton }
             }
 
             HStack(spacing: 8) {
@@ -740,7 +867,9 @@ private struct NetFlowWidgetView: View {
                         Text("等待下次采样")
                             .font(.caption.weight(.semibold))
                         Text(entry.snapshot.planConfigured
-                             ? "添加后点右上角设置按钮配置套餐"
+                             ? (entry.snapshot.inlineSettings
+                                ? "添加后点右上角设置按钮配置套餐"
+                                : "长按小组件 → 编辑小组件，输入套餐总量")
                              : "套餐设置请添加“NetFlow 套餐”小组件")
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)
@@ -1058,7 +1187,21 @@ struct NetFlowConfiguredWidget: Widget {
             NetFlowWidgetView(entry: entry)
         }
         .configurationDisplayName("NetFlow 套餐")
-        .description("添加后直接用小组件按钮设置套餐；约每 5 分钟请求更新，实际由 iOS 调度。")
+        .description("兼容旧版的按钮设置；如需直接输入数字，请添加“NetFlow 套餐·可输入”。")
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline])
+    }
+}
+
+struct NetFlowEditablePlanWidget: Widget {
+    let kind = editableWidgetKind
+
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(kind: kind, intent: EditablePlanIntent.self,
+                               provider: EditablePlanProvider()) { entry in
+            NetFlowWidgetView(entry: entry)
+        }
+        .configurationDisplayName("NetFlow 套餐·可输入")
+        .description("长按小组件，点“编辑小组件”，用数字键盘输入 GB 和每月重置日。")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline])
     }
 }
@@ -1068,5 +1211,6 @@ struct NetFlowWidgetBundle: WidgetBundle {
     var body: some Widget {
         NetFlowUsageWidget()
         NetFlowConfiguredWidget()
+        NetFlowEditablePlanWidget()
     }
 }
