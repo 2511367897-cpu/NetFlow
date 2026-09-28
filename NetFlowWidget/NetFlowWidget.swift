@@ -32,6 +32,7 @@ private enum SharedKey {
 
     static let dayKey = "widget.day.key"
     static let monthKey = "widget.month.key"
+    static let resetToken = "widget.reset.token"
 }
 
 private struct RawCounters {
@@ -202,13 +203,86 @@ private enum SharedTrafficStore {
     private static func syncFromAppIfNewer(into local: UserDefaults) {
         guard let shared = appGroupDefaults else { return }
 
+        let sharedResetToken = shared.double(forKey: SharedKey.resetToken)
+        let localResetToken = local.double(forKey: SharedKey.resetToken)
+
+        if sharedResetToken > localResetToken {
+            clearLocalUsageState(local)
+            local.set(sharedResetToken, forKey: SharedKey.resetToken)
+            local.set(0, forKey: lastAppSyncKey)
+        }
+
         let sharedTimestamp = shared.double(forKey: SharedKey.updatedAt)
         guard sharedTimestamp > 0 else { return }
 
         let lastSync = local.double(forKey: lastAppSyncKey)
         guard sharedTimestamp > lastSync else { return }
 
-        let doubleKeys = [
+        let incomingDay = shared.string(forKey: SharedKey.dayKey)
+        let incomingMonth = shared.string(forKey: SharedKey.monthKey)
+        let sameDay = incomingDay != nil && incomingDay == local.string(forKey: SharedKey.dayKey)
+        let sameMonth = incomingMonth != nil && incomingMonth == local.string(forKey: SharedKey.monthKey)
+
+        let todayKeys = [
+            SharedKey.todayTotal,
+            SharedKey.todayCellular,
+            SharedKey.todayWiFi
+        ]
+        for key in todayKeys {
+            let incoming = shared.double(forKey: key)
+            local.set(sameDay ? max(local.double(forKey: key), incoming) : incoming, forKey: key)
+        }
+
+        let monthKeys = [
+            SharedKey.monthTotal,
+            SharedKey.monthCellular,
+            SharedKey.monthWiFi
+        ]
+        for key in monthKeys {
+            let incoming = shared.double(forKey: key)
+            local.set(sameMonth ? max(local.double(forKey: key), incoming) : incoming, forKey: key)
+        }
+
+        local.set(
+            max(
+                local.double(forKey: SharedKey.allTimeTotal),
+                shared.double(forKey: SharedKey.allTimeTotal)
+            ),
+            forKey: SharedKey.allTimeTotal
+        )
+
+        let authoritativeKeys = [
+            SharedKey.planCapacity,
+            SharedKey.planUsed,
+            SharedKey.planRemaining,
+            SharedKey.rateDown,
+            SharedKey.rateUp,
+            SharedKey.updatedAt,
+            SharedKey.rawWiFiReceived,
+            SharedKey.rawWiFiSent,
+            SharedKey.rawCellularReceived,
+            SharedKey.rawCellularSent,
+            SharedKey.rawTimestamp
+        ]
+        for key in authoritativeKeys {
+            local.set(shared.double(forKey: key), forKey: key)
+        }
+
+        local.set(shared.bool(forKey: SharedKey.planUnlimited), forKey: SharedKey.planUnlimited)
+        local.set(shared.bool(forKey: SharedKey.rawAvailable), forKey: SharedKey.rawAvailable)
+
+        if let incomingDay {
+            local.set(incomingDay, forKey: SharedKey.dayKey)
+        }
+        if let incomingMonth {
+            local.set(incomingMonth, forKey: SharedKey.monthKey)
+        }
+
+        local.set(sharedTimestamp, forKey: lastAppSyncKey)
+    }
+
+    private static func clearLocalUsageState(_ defaults: UserDefaults) {
+        let keys = [
             SharedKey.todayTotal,
             SharedKey.todayCellular,
             SharedKey.todayWiFi,
@@ -226,24 +300,15 @@ private enum SharedTrafficStore {
             SharedKey.rawWiFiSent,
             SharedKey.rawCellularReceived,
             SharedKey.rawCellularSent,
-            SharedKey.rawTimestamp
+            SharedKey.rawTimestamp,
+            SharedKey.rawAvailable,
+            SharedKey.dayKey,
+            SharedKey.monthKey
         ]
 
-        for key in doubleKeys {
-            local.set(shared.double(forKey: key), forKey: key)
+        for key in keys {
+            defaults.removeObject(forKey: key)
         }
-
-        local.set(shared.bool(forKey: SharedKey.planUnlimited), forKey: SharedKey.planUnlimited)
-        local.set(shared.bool(forKey: SharedKey.rawAvailable), forKey: SharedKey.rawAvailable)
-
-        if let day = shared.string(forKey: SharedKey.dayKey) {
-            local.set(day, forKey: SharedKey.dayKey)
-        }
-        if let month = shared.string(forKey: SharedKey.monthKey) {
-            local.set(month, forKey: SharedKey.monthKey)
-        }
-
-        local.set(sharedTimestamp, forKey: lastAppSyncKey)
     }
 
     private static func load(defaults: UserDefaults) -> UsageSnapshot {
