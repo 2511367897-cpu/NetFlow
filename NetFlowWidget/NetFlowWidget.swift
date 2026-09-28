@@ -1,7 +1,6 @@
 import WidgetKit
 import SwiftUI
 import AppIntents
-import ActivityKit
 import Darwin
 
 private let netFlowGroupID = "group.com.duyhoang.netflow"
@@ -614,7 +613,7 @@ private struct NetFlowWidgetView: View {
                         Text(
                             entry.snapshot.hasAppSync
                             ? "套餐未设置"
-                            : (entry.snapshot.hasSharedContainer ? "套餐待同步" : "共享权限未生效")
+                            : (entry.snapshot.hasSharedContainer ? "套餐待同步" : "独立统计模式")
                         )
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
@@ -745,7 +744,7 @@ private struct NetFlowWidgetView: View {
                         Text(
                             entry.snapshot.hasAppSync
                             ? "请在 App 内设置套餐"
-                            : (entry.snapshot.hasSharedContainer ? "打开 NetFlow 一次后自动同步" : "重签时必须保留 App Group")
+                            : (entry.snapshot.hasSharedContainer ? "打开 NetFlow 一次后自动同步" : "今日 / 本月 / 累计仍可正常统计")
                         )
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
@@ -903,148 +902,6 @@ private extension View {
 }
 
 
-@available(iOSApplicationExtension 16.2, *)
-struct NetFlowLiveActivity: Widget {
-    var body: some WidgetConfiguration {
-        ActivityConfiguration(for: NetFlowActivityAttributes.self) { context in
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("今日流量", systemImage: "waveform.path.ecg")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Text(Format.bytes(context.state.todayTotal))
-                        .font(.system(size: 24, weight: .bold, design: .rounded))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.65)
-
-                    HStack(spacing: 10) {
-                        Label(
-                            Format.rate(context.state.downloadBytesPerSecond),
-                            systemImage: "arrow.down"
-                        )
-                        .foregroundStyle(.blue)
-
-                        Label(
-                            Format.rate(context.state.uploadBytesPerSecond),
-                            systemImage: "arrow.up"
-                        )
-                        .foregroundStyle(.green)
-                    }
-                    .font(.caption2.weight(.semibold))
-                }
-
-                Spacer(minLength: 6)
-
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text("本月")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-
-                    Text(Format.bytes(context.state.monthTotal))
-                        .font(.headline.weight(.bold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-
-                    Text(
-                        context.state.planUnlimited
-                        ? "不限量"
-                        : "剩余 " + Format.bytes(context.state.planRemaining)
-                    )
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                    Text(Format.time(context.state.updatedAt))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .activityBackgroundTint(Color(uiColor: .secondarySystemBackground))
-            .activitySystemActionForegroundColor(.primary)
-            .widgetURL(URL(string: "netflow://open"))
-        } dynamicIsland: { context in
-            DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Label("今日", systemImage: "chart.line.uptrend.xyaxis")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.indigo)
-
-                        Text(Format.bytes(context.state.todayTotal))
-                            .font(.headline.weight(.bold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                }
-
-                DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text("本月")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-
-                        Text(Format.bytes(context.state.monthTotal))
-                            .font(.subheadline.weight(.bold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                }
-
-                DynamicIslandExpandedRegion(.center) {
-                    HStack(spacing: 12) {
-                        Label(
-                            Format.rate(context.state.downloadBytesPerSecond),
-                            systemImage: "arrow.down"
-                        )
-                        .foregroundStyle(.blue)
-
-                        Label(
-                            Format.rate(context.state.uploadBytesPerSecond),
-                            systemImage: "arrow.up"
-                        )
-                        .foregroundStyle(.green)
-                    }
-                    .font(.caption.weight(.semibold))
-                }
-
-                DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 10) {
-                        Label(
-                            Format.bytes(context.state.todayCellular),
-                            systemImage: "antenna.radiowaves.left.and.right"
-                        )
-                        .foregroundStyle(.orange)
-
-                        Spacer()
-
-                        Label(
-                            Format.bytes(context.state.todayWiFi),
-                            systemImage: "wifi"
-                        )
-                        .foregroundStyle(.cyan)
-                    }
-                    .font(.caption2.weight(.medium))
-                }
-            } compactLeading: {
-                Image(systemName: "waveform.path.ecg")
-                    .foregroundStyle(.indigo)
-            } compactTrailing: {
-                Text(Format.bytes(context.state.todayTotal))
-                    .font(.caption2.weight(.bold))
-                    .minimumScaleFactor(0.6)
-            } minimal: {
-                Image(systemName: "chart.line.uptrend.xyaxis")
-                    .foregroundStyle(.indigo)
-            }
-            .widgetURL(URL(string: "netflow://open"))
-            .keylineTint(.indigo)
-        }
-    }
-}
-
 struct NetFlowUsageWidget: Widget {
     let kind = netFlowWidgetKind
 
@@ -1067,9 +924,5 @@ struct NetFlowUsageWidget: Widget {
 struct NetFlowWidgetBundle: WidgetBundle {
     var body: some Widget {
         NetFlowUsageWidget()
-
-        if #available(iOSApplicationExtension 16.2, *) {
-            NetFlowLiveActivity()
-        }
     }
 }
