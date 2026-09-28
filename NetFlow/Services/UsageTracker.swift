@@ -41,12 +41,19 @@ final class UsageTracker {
             cellularSent: current.cellular.sent - old.cellular.sent,
             isValid: true
         )
-        let r = NetworkRate(
-            wifiDown: Double(d.wifiReceived) / seconds,
-            wifiUp: Double(d.wifiSent) / seconds,
-            cellularDown: Double(d.cellularReceived) / seconds,
-            cellularUp: Double(d.cellularSent) / seconds
-        )
+        let r: NetworkRate
+        if seconds <= 10 {
+            r = NetworkRate(
+                wifiDown: Double(d.wifiReceived) / seconds,
+                wifiUp: Double(d.wifiSent) / seconds,
+                cellularDown: Double(d.cellularReceived) / seconds,
+                cellularUp: Double(d.cellularSent) / seconds
+            )
+        } else {
+            // A long foreground/background gap is valid for usage accounting,
+            // but its average is not a meaningful "current" network speed.
+            r = .zero
+        }
         return SampleResult(snapshot: current, delta: d, rate: r)
     }
 
