@@ -893,37 +893,14 @@ final class NetworkContextService: NSObject, ObservableObject {
 
 extension NetworkContextService: CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        Task { @MainActor [weak self] in
-            guard self != nil else { return }
-            if manager.authorizationStatus == .authorizedAlways ||
-                manager.authorizationStatus == .authorizedWhenInUse {
-                manager.requestLocation()
-            }
-        }
+        // Location/weather is intentionally disabled in the traffic-focused build.
     }
 
     nonisolated func locationManager(
         _ manager: CLLocationManager,
         didUpdateLocations locations: [CLLocation]
     ) {
-        let validLocations = locations.filter { $0.horizontalAccuracy >= 0 }
-        let recentLocations = validLocations.filter {
-            let age = Date().timeIntervalSince($0.timestamp)
-            return age >= 0 && age <= 120
-        }
-        let location = (recentLocations.isEmpty ? validLocations : recentLocations)
-            .min {
-                if $0.horizontalAccuracy == $1.horizontalAccuracy {
-                    return $0.timestamp > $1.timestamp
-                }
-                return $0.horizontalAccuracy < $1.horizontalAccuracy
-            } ?? locations.last
-        guard let location else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.currentLocation = location
-            await self.updateWeather(for: location)
-        }
+        // Intentionally ignored: this build no longer consumes location data.
     }
 
     nonisolated func locationManager(
