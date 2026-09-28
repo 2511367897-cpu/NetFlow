@@ -1,0 +1,51 @@
+name: NetFlow one-time unsigned build
+
+on:
+  push:
+    branches: [work/widget-429]
+
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen and generate project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Static checks
+        run: bash Tools/check_project.sh
+      - name: XCTest
+        run: |
+          xcodebuild test -project NetFlow.xcodeproj -scheme NetFlow -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -derivedDataPath build/simulator CODE_SIGNING_ALLOWED=NO
+      - name: Unsigned device build
+        run: |
+          xcodebuild build -project NetFlow.xcodeproj -scheme NetFlow -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO
+      - name: Check package and remove unwanted capabilities
+        run: |
+          set -euo pipefail
+          APP=build/device/Build/Products/Release-iphoneos/NetFlow.app
+          test -d "$APP/PlugIns/NetFlowWidget.appex"
+          ! find "$APP" -name '*.entitlements' | grep .
+          ! grep -R -E 'ActivityConfiguration|DynamicIsland|NetFlowLiveActivity|group.com.duyhoang.netflow' \
+              NetFlow NetFlowWidget project.yml --include='*.swift' --include='*.plist' --include='*.yml'
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$APP/Info.plist")" = 38
+          test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$APP/PlugIns/NetFlowWidget.appex/Info.plist")" = 38
+          mkdir -p dist/Payload
+          cp -R "$APP" dist/Payload/
+          (cd dist && zip -qry NetFlow.ipa Payload && zip -q NetFlow.zip NetFlow.ipa)
+          (cd dist && shasum -a 256 NetFlow.ipa NetFlow.zip > SHA256.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetFlow-429-unsigned
+          path: |
+            dist/NetFlow.ipa
+            dist/NetFlow.zip
+            dist/SHA256.txt
+          retention-days: 7
