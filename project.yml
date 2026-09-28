@@ -5,6 +5,7 @@ options:
   deploymentTarget:
     iOS: "16.0"
   xcodeVersion: "15.0"
+
 targets:
   NetFlow:
     type: application
@@ -18,6 +19,10 @@ targets:
       - path: NetFlow/Resources/Assets.xcassets
       - path: NetFlow/Resources/en.lproj
       - path: NetFlow/Resources/vi.lproj
+      - path: NetFlow/Resources/zh.lproj
+    dependencies:
+      - target: NetFlowWidget
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.duyhoang.netflow
@@ -25,53 +30,34 @@ targets:
         SWIFT_VERSION: 5.0
         SWIFT_STRICT_CONCURRENCY: minimal
         CODE_SIGN_ENTITLEMENTS: NetFlow/NetFlow.entitlements
-        MARKETING_VERSION: 4.2.0
-        CURRENT_PROJECT_VERSION: 29
+        MARKETING_VERSION: 4.2.1
+        CURRENT_PROJECT_VERSION: 30
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: NetFlow/Info.plist
-    info:
-      path: NetFlow/Info.plist
-      properties:
-        CFBundleDevelopmentRegion: en
-        CFBundleDisplayName: NetFlow
-        CFBundleShortVersionString: 4.2.0
-        CFBundleVersion: "29"
-        CFBundleIconName: AppIcon
-        CFBundleIcons:
-          CFBundlePrimaryIcon:
-            CFBundleIconFiles:
-              - AppIcon60x60
-              - AppIcon76x76
-            CFBundleIconName: AppIcon
-        CFBundleIcons~ipad:
-          CFBundlePrimaryIcon:
-            CFBundleIconFiles:
-              - AppIcon76x76
-              - AppIcon83.5x83.5
-            CFBundleIconName: AppIcon
-        CFBundleLocalizations:
-          - en
-          - vi
-        ITSAppUsesNonExemptEncryption: false
-        LSRequiresIPhoneOS: true
-        NSLocalNetworkUsageDescription: NetFlow reads local network details to display connection information.
-        NSLocationWhenInUseUsageDescription: NetFlow uses your current location to display local weather for your area.
-        NetFlowBuildDate: 22/09/2026
-        UIApplicationSceneManifest:
-          UIApplicationSupportsMultipleScenes: false
-        UIApplicationSupportsIndirectInputEvents: true
-        UILaunchScreen: {}
-        UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
-        UISupportedInterfaceOrientations~ipad:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationPortraitUpsideDown
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
+
+  NetFlowWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: NetFlowWidget
+        excludes:
+          - Info.plist
+          - NetFlowWidget.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.duyhoang.netflow.widget
+        PRODUCT_NAME: NetFlowWidget
+        SWIFT_VERSION: 5.0
+        SWIFT_STRICT_CONCURRENCY: minimal
+        CODE_SIGN_ENTITLEMENTS: NetFlowWidget/NetFlowWidget.entitlements
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: NetFlowWidget/Info.plist
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+
   NetFlowTests:
     type: bundle.unit-test
     platform: iOS
