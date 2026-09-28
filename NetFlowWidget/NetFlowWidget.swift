@@ -3,35 +3,20 @@ import SwiftUI
 import AppIntents
 import Darwin
 
-private let netFlowGroupID = "group.com.duyhoang.netflow"
 private let netFlowWidgetKind = "NetFlowUsageWidget"
 
-private enum SharedKey {
-    static let todayTotal = "widget.today.total"
-    static let todayCellular = "widget.today.cellular"
-    static let todayWiFi = "widget.today.wifi"
-    static let monthTotal = "widget.month.total"
-    static let monthCellular = "widget.month.cellular"
-    static let monthWiFi = "widget.month.wifi"
-    static let allTimeTotal = "widget.alltime.total"
-    static let planCapacity = "widget.plan.capacity"
-    static let planUsed = "widget.plan.used"
-    static let planRemaining = "widget.plan.remaining"
-    static let planUnlimited = "widget.plan.unlimited"
-    static let rateDown = "widget.rate.down"
-    static let rateUp = "widget.rate.up"
-    static let updatedAt = "widget.updatedAt"
+struct NetFlowWidgetConfigurationIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource = "NetFlow 套餐设置"
+    static var description = IntentDescription("小组件独立保存套餐设置，不依赖 App Group。")
 
-    static let rawWiFiReceived = "widget.raw.wifi.received"
-    static let rawWiFiSent = "widget.raw.wifi.sent"
-    static let rawCellularReceived = "widget.raw.cellular.received"
-    static let rawCellularSent = "widget.raw.cellular.sent"
-    static let rawTimestamp = "widget.raw.timestamp"
-    static let rawAvailable = "widget.raw.available"
+    @Parameter(title: "套餐总量（GB）", default: 30.0)
+    var planCapacityGB: Double
 
-    static let dayKey = "widget.day.key"
-    static let monthKey = "widget.month.key"
-    static let resetToken = "widget.reset.token"
+    @Parameter(title: "每月重置日", default: 1)
+    var resetDay: Int
+
+    @Parameter(title: "不限量套餐", default: false)
+    var unlimited: Bool
 }
 
 private struct RawCounters {
@@ -46,6 +31,41 @@ private struct RawCounters {
         cellularReceived: 0,
         cellularSent: 0
     )
+}
+
+private struct TrafficDelta {
+    var wifiReceived: UInt64
+    var wifiSent: UInt64
+    var cellularReceived: UInt64
+    var cellularSent: UInt64
+
+    var wifiTotal: UInt64 { wifiReceived &+ wifiSent }
+    var cellularTotal: UInt64 { cellularReceived &+ cellularSent }
+    var total: UInt64 { wifiTotal &+ cellularTotal }
+
+    static let zero = TrafficDelta(
+        wifiReceived: 0,
+        wifiSent: 0,
+        cellularReceived: 0,
+        cellularSent: 0
+    )
+}
+
+private struct DailyBucket: Codable {
+    var total: UInt64 = 0
+    var cellular: UInt64 = 0
+    var wifi: UInt64 = 0
+
+    mutating func add(total: UInt64, cellular: UInt64, wifi: UInt64) {
+        self.total = saturatingAdd(self.total, total)
+        self.cellular = saturatingAdd(self.cellular, cellular)
+        self.wifi = saturatingAdd(self.wifi, wifi)
+    }
+
+    private func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+        let (value, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? UInt64.max : value
+    }
 }
 
 private enum RawCounterReader {
@@ -90,107 +110,78 @@ private struct UsageSnapshot {
     var monthCellular: UInt64 = 0
     var monthWiFi: UInt64 = 0
     var allTimeTotal: UInt64 = 0
+
     var planCapacity: UInt64 = 0
     var planUsed: UInt64 = 0
     var planRemaining: UInt64 = 0
     var planUnlimited = false
-    var hasSharedContainer = false
-    var hasAppSync = false
-    var isPreview = false
+    var resetDay = 1
+
     var down: Double = 0
     var up: Double = 0
     var updatedAt = Date()
+    var isPreview = false
 }
 
-private enum SharedTrafficStore {
-    // 小组件把自己的计数保存在扩展自身的 UserDefaults 中。
-    // 即使重签时 App Group 权限被裁掉，Widget 仍然可以独立工作。
-    private static var defaults: UserDefaults { .standard }
-
-    private static var hasSharedContainer: Bool {
-        FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: netFlowGroupID
-        ) != nil
+private enum WidgetTrafficStore {
+    private enum Key {
+        static let rawWiFiReceived = "self.raw.wifi.received"
+        static let rawWiFiSent = "self.raw.wifi.sent"
+        static let rawCellularReceived = "self.raw.cellular.received"
+        static let rawCellularSent = "self.raw.cellular.sent"
+        static let rawTimestamp = "self.raw.timestamp"
+        static let rawAvailable = "self.raw.available"
+        static let allTimeTotal = "self.alltime.total"
+        static let rateDown = "self.rate.down"
+        static let rateUp = "self.rate.up"
+        static let updatedAt = "self.updatedAt"
+        static let dailyBuckets = "self.dailyBuckets.v2"
     }
 
-    private static var appGroupDefaults: UserDefaults? {
-        guard hasSharedContainer else { return nil }
-        return UserDefaults(suiteName: netFlowGroupID)
-    }
+    private static let defaults = UserDefaults.standard
+    private static let calendar = Calendar.current
 
-    private static let lastAppSyncKey = "widget.local.lastAppSync"
-
-    static func sample(now: Date = Date()) -> UsageSnapshot {
-        let defaults = defaults
-        syncFromAppIfNewer(into: defaults)
-        resetPeriodIfNeeded(defaults: defaults, now: now)
-
+    static func sample(
+        configuration: NetFlowWidgetConfigurationIntent,
+        now: Date = Date()
+    ) -> UsageSnapshot {
         let current = RawCounterReader.read()
         let currentTimestamp = now.timeIntervalSince1970
 
-        if defaults.bool(forKey: SharedKey.rawAvailable) {
+        if defaults.bool(forKey: Key.rawAvailable) {
             let previous = RawCounters(
-                wifiReceived: bytes(defaults.double(forKey: SharedKey.rawWiFiReceived)),
-                wifiSent: bytes(defaults.double(forKey: SharedKey.rawWiFiSent)),
-                cellularReceived: bytes(defaults.double(forKey: SharedKey.rawCellularReceived)),
-                cellularSent: bytes(defaults.double(forKey: SharedKey.rawCellularSent))
+                wifiReceived: bytes(defaults.double(forKey: Key.rawWiFiReceived)),
+                wifiSent: bytes(defaults.double(forKey: Key.rawWiFiSent)),
+                cellularReceived: bytes(defaults.double(forKey: Key.rawCellularReceived)),
+                cellularSent: bytes(defaults.double(forKey: Key.rawCellularSent))
             )
-            let previousTimestamp = defaults.double(forKey: SharedKey.rawTimestamp)
+            let previousTimestamp = defaults.double(forKey: Key.rawTimestamp)
 
             if countersAreValid(current: current, previous: previous) {
-                let wifiReceived = current.wifiReceived - previous.wifiReceived
-                let wifiSent = current.wifiSent - previous.wifiSent
-                let cellularReceived = current.cellularReceived - previous.cellularReceived
-                let cellularSent = current.cellularSent - previous.cellularSent
-
-                let wifiDelta = wifiReceived &+ wifiSent
-                let cellularDelta = cellularReceived &+ cellularSent
-                let totalDelta = wifiDelta &+ cellularDelta
-
-                add(totalDelta, to: SharedKey.todayTotal, defaults: defaults)
-                add(wifiDelta, to: SharedKey.todayWiFi, defaults: defaults)
-                add(cellularDelta, to: SharedKey.todayCellular, defaults: defaults)
-                add(totalDelta, to: SharedKey.monthTotal, defaults: defaults)
-                add(wifiDelta, to: SharedKey.monthWiFi, defaults: defaults)
-                add(cellularDelta, to: SharedKey.monthCellular, defaults: defaults)
-                add(totalDelta, to: SharedKey.allTimeTotal, defaults: defaults)
-                add(cellularDelta, to: SharedKey.planUsed, defaults: defaults)
-
-                if !defaults.bool(forKey: SharedKey.planUnlimited) {
-                    let remaining = bytes(defaults.double(forKey: SharedKey.planRemaining))
-                    defaults.set(
-                        Double(remaining > cellularDelta ? remaining - cellularDelta : 0),
-                        forKey: SharedKey.planRemaining
-                    )
-                }
-
-                let elapsed = currentTimestamp - previousTimestamp
-                if elapsed > 0.20 && elapsed <= 10 {
-                    defaults.set(
-                        Double(wifiReceived &+ cellularReceived) / elapsed,
-                        forKey: SharedKey.rateDown
-                    )
-                    defaults.set(
-                        Double(wifiSent &+ cellularSent) / elapsed,
-                        forKey: SharedKey.rateUp
-                    )
-                }
+                let delta = TrafficDelta(
+                    wifiReceived: current.wifiReceived - previous.wifiReceived,
+                    wifiSent: current.wifiSent - previous.wifiSent,
+                    cellularReceived: current.cellularReceived - previous.cellular.received,
+                    cellularSent: current.cellular.sent - previous.cellular.sent
+                )
             }
         }
 
-        defaults.set(Double(current.wifiReceived), forKey: SharedKey.rawWiFiReceived)
-        defaults.set(Double(current.wifiSent), forKey: SharedKey.rawWiFiSent)
-        defaults.set(Double(current.cellularReceived), forKey: SharedKey.rawCellularReceived)
-        defaults.set(Double(current.cellularSent), forKey: SharedKey.rawCellularSent)
-        defaults.set(currentTimestamp, forKey: SharedKey.rawTimestamp)
-        defaults.set(true, forKey: SharedKey.rawAvailable)
-        defaults.set(currentTimestamp, forKey: SharedKey.updatedAt)
+        defaults.set(Double(current.wifiReceived), forKey: Key.rawWiFiReceived)
+        defaults.set(Double(current.wifiSent), forKey: Key.rawWiFiSent)
+        defaults.set(Double(current.cellularReceived), forKey: Key.rawCellularReceived)
+        defaults.set(Double(current.cellularSent), forKey: Key.rawCellularSent)
+        defaults.set(currentTimestamp, forKey: Key.rawTimestamp)
+        defaults.set(true, forKey: Key.rawAvailable)
+        defaults.set(currentTimestamp, forKey: Key.updatedAt)
 
-        return load(defaults: defaults)
+        return load(configuration: configuration, now: now)
     }
 
     static func forceRefresh() async {
-        _ = sample()
+        let current = RawCounterReader.read()
+        let now = Date()
+        consume(current: current, now: now)
 
         do {
             try await Task.sleep(nanoseconds: 800_000_000)
@@ -198,174 +189,229 @@ private enum SharedTrafficStore {
             return
         }
 
-        _ = sample()
+        consume(current: RawCounterReader.read(), now: Date())
     }
 
-    static func load() -> UsageSnapshot {
-        let defaults = defaults
-        syncFromAppIfNewer(into: defaults)
-        return load(defaults: defaults)
+    private static func consume(current: RawCounters, now: Date) {
+        let currentTimestamp = now.timeIntervalSince1970
+
+        if defaults.bool(forKey: Key.rawAvailable) {
+            let previous = RawCounters(
+                wifiReceived: bytes(defaults.double(forKey: Key.rawWiFiReceived)),
+                wifiSent: bytes(defaults.double(forKey: Key.rawWiFiSent)),
+                cellularReceived: bytes(defaults.double(forKey: Key.rawCellularReceived)),
+                cellularSent: bytes(defaults.double(forKey: Key.rawCellularSent))
+            )
+            let previousTimestamp = defaults.double(forKey: Key.rawTimestamp)
+
+            if countersAreValid(current: current, previous: previous) {
+                let delta = TrafficDelta(
+                    wifiReceived: current.wifiReceived - previous.wifiReceived,
+                    wifiSent: current.wifiSent - previous.wifiSent,
+                    cellularReceived: current.cellularReceived - previous.cellularReceived,
+                    cellularSent: current.cellularSent - previous.cellularSent
+                )
+                record(delta: delta, from: Date(timeIntervalSince1970: previousTimestamp), to: now)
+
+                let elapsed = currentTimestamp - previousTimestamp
+                if elapsed >= 0.2 && elapsed <= 10 {
+                    defaults.set(
+                        Double(delta.wifiReceived &+ delta.cellularReceived) / elapsed,
+                        forKey: Key.rateDown
+                    )
+                    defaults.set(
+                        Double(delta.wifiSent &+ delta.cellularSent) / elapsed,
+                        forKey: Key.rateUp
+                    )
+                } else {
+                    defaults.set(0, forKey: Key.rateDown)
+                    defaults.set(0, forKey: Key.rateUp)
+                }
+            }
+        }
+
+        defaults.set(Double(current.wifiReceived), forKey: Key.rawWiFiReceived)
+        defaults.set(Double(current.wifiSent), forKey: Key.rawWiFiSent)
+        defaults.set(Double(current.cellularReceived), forKey: Key.rawCellularReceived)
+        defaults.set(Double(current.cellularSent), forKey: Key.rawCellularSent)
+        defaults.set(currentTimestamp, forKey: Key.rawTimestamp)
+        defaults.set(true, forKey: Key.rawAvailable)
+        defaults.set(currentTimestamp, forKey: Key.updatedAt)
     }
 
-    private static func syncFromAppIfNewer(into local: UserDefaults) {
-        guard let shared = appGroupDefaults else { return }
-
-        let sharedResetToken = shared.double(forKey: SharedKey.resetToken)
-        let localResetToken = local.double(forKey: SharedKey.resetToken)
-
-        if sharedResetToken > localResetToken {
-            clearLocalUsageState(local)
-            local.set(sharedResetToken, forKey: SharedKey.resetToken)
-            local.set(0, forKey: lastAppSyncKey)
-        }
-
-        let sharedTimestamp = shared.double(forKey: SharedKey.updatedAt)
-        guard sharedTimestamp > 0 else { return }
-
-        let lastSync = local.double(forKey: lastAppSyncKey)
-        guard sharedTimestamp > lastSync else { return }
-
-        let incomingDay = shared.string(forKey: SharedKey.dayKey)
-        let incomingMonth = shared.string(forKey: SharedKey.monthKey)
-        let sameDay = incomingDay != nil && incomingDay == local.string(forKey: SharedKey.dayKey)
-        let sameMonth = incomingMonth != nil && incomingMonth == local.string(forKey: SharedKey.monthKey)
-
-        let todayKeys = [
-            SharedKey.todayTotal,
-            SharedKey.todayCellular,
-            SharedKey.todayWiFi
-        ]
-        for key in todayKeys {
-            let incoming = shared.double(forKey: key)
-            local.set(sameDay ? max(local.double(forKey: key), incoming) : incoming, forKey: key)
-        }
-
-        let monthKeys = [
-            SharedKey.monthTotal,
-            SharedKey.monthCellular,
-            SharedKey.monthWiFi
-        ]
-        for key in monthKeys {
-            let incoming = shared.double(forKey: key)
-            local.set(sameMonth ? max(local.double(forKey: key), incoming) : incoming, forKey: key)
-        }
-
-        local.set(
-            max(
-                local.double(forKey: SharedKey.allTimeTotal),
-                shared.double(forKey: SharedKey.allTimeTotal)
-            ),
-            forKey: SharedKey.allTimeTotal
-        )
-
-        let authoritativeKeys = [
-            SharedKey.planCapacity,
-            SharedKey.planUsed,
-            SharedKey.planRemaining,
-            SharedKey.rateDown,
-            SharedKey.rateUp,
-            SharedKey.updatedAt,
-            SharedKey.rawWiFiReceived,
-            SharedKey.rawWiFiSent,
-            SharedKey.rawCellularReceived,
-            SharedKey.rawCellularSent,
-            SharedKey.rawTimestamp
-        ]
-        for key in authoritativeKeys {
-            local.set(shared.double(forKey: key), forKey: key)
-        }
-
-        local.set(shared.bool(forKey: SharedKey.planUnlimited), forKey: SharedKey.planUnlimited)
-        local.set(shared.bool(forKey: SharedKey.rawAvailable), forKey: SharedKey.rawAvailable)
-
-        if let incomingDay {
-            local.set(incomingDay, forKey: SharedKey.dayKey)
-        }
-        if let incomingMonth {
-            local.set(incomingMonth, forKey: SharedKey.monthKey)
-        }
-
-        local.set(sharedTimestamp, forKey: lastAppSyncKey)
+    static func sampleAndLoad(
+        configuration: NetFlowWidgetConfigurationIntent,
+        now: Date = Date()
+    ) -> UsageSnapshot {
+        consume(current: RawCounterReader.read(), now: now)
+        return load(configuration: configuration, now: now)
     }
 
-    private static func clearLocalUsageState(_ defaults: UserDefaults) {
-        let keys = [
-            SharedKey.todayTotal,
-            SharedKey.todayCellular,
-            SharedKey.todayWiFi,
-            SharedKey.monthTotal,
-            SharedKey.monthCellular,
-            SharedKey.monthWiFi,
-            SharedKey.allTimeTotal,
-            SharedKey.planCapacity,
-            SharedKey.planUsed,
-            SharedKey.planRemaining,
-            SharedKey.rateDown,
-            SharedKey.rateUp,
-            SharedKey.updatedAt,
-            SharedKey.rawWiFiReceived,
-            SharedKey.rawWiFiSent,
-            SharedKey.rawCellularReceived,
-            SharedKey.rawCellularSent,
-            SharedKey.rawTimestamp,
-            SharedKey.rawAvailable,
-            SharedKey.dayKey,
-            SharedKey.monthKey
-        ]
+    static func load(
+        configuration: NetFlowWidgetConfigurationIntent,
+        now: Date = Date()
+    ) -> UsageSnapshot {
+        let buckets = loadBuckets()
+        let todayKey = key(for: now)
+        let today = buckets[todayKey] ?? DailyBucket()
 
-        for key in keys {
-            defaults.removeObject(forKey: key)
+        let monthInterval = currentMonthInterval(now)
+        let monthBuckets = buckets.compactMap { key, bucket -> DailyBucket? in
+            guard let date = date(from: key), monthInterval.contains(date) else { return nil }
+            return bucket
         }
-    }
 
-    private static func load(defaults: UserDefaults) -> UsageSnapshot {
-        let timestamp = defaults.double(forKey: SharedKey.updatedAt)
-        let todayTotal = bytes(defaults.double(forKey: SharedKey.todayTotal))
-        let monthTotal = bytes(defaults.double(forKey: SharedKey.monthTotal))
-        let storedAllTime = bytes(defaults.double(forKey: SharedKey.allTimeTotal))
-        let correctedAllTime = max(storedAllTime, monthTotal, todayTotal)
+        let monthTotal = monthBuckets.reduce(UInt64(0)) { saturatingAdd($0, $1.total) }
+        let monthCellular = monthBuckets.reduce(UInt64(0)) { saturatingAdd($0, $1.cellular) }
+        let monthWiFi = monthBuckets.reduce(UInt64(0)) { saturatingAdd($0, $1.wifi) }
 
-        if correctedAllTime != storedAllTime {
-            defaults.set(Double(correctedAllTime), forKey: SharedKey.allTimeTotal)
-        }
+        let resetDay = min(max(configuration.resetDay, 1), 28)
+        let cycleStart = currentCycleStart(now: now, resetDay: resetDay)
+        let planUsed = buckets.compactMap { key, bucket -> UInt64? in
+            guard let date = date(from: key), date >= cycleStart && date <= now else { return nil }
+            return bucket.cellular
+        }.reduce(UInt64(0), saturatingAdd)
+
+        let unlimited = configuration.unlimited
+        let safeGB = configuration.planCapacityGB.isFinite
+            ? min(max(configuration.planCapacityGB, 0), 100_000)
+            : 0
+        let capacity = unlimited ? UInt64(0) : UInt64(safeGB * 1_000_000_000)
+        let remaining = unlimited ? 0 : (capacity > planUsed ? capacity - planUsed : 0)
+
+        let timestamp = defaults.double(forKey: Key.updatedAt)
 
         return UsageSnapshot(
-            todayTotal: todayTotal,
-            todayCellular: bytes(defaults.double(forKey: SharedKey.todayCellular)),
-            todayWiFi: bytes(defaults.double(forKey: SharedKey.todayWiFi)),
+            todayTotal: today.total,
+            todayCellular: today.cellular,
+            todayWiFi: today.wifi,
             monthTotal: monthTotal,
-            monthCellular: bytes(defaults.double(forKey: SharedKey.monthCellular)),
-            monthWiFi: bytes(defaults.double(forKey: SharedKey.monthWiFi)),
-            allTimeTotal: correctedAllTime,
-            planCapacity: bytes(defaults.double(forKey: SharedKey.planCapacity)),
-            planUsed: bytes(defaults.double(forKey: SharedKey.planUsed)),
-            planRemaining: bytes(defaults.double(forKey: SharedKey.planRemaining)),
-            planUnlimited: defaults.bool(forKey: SharedKey.planUnlimited),
-            hasSharedContainer: hasSharedContainer,
-            hasAppSync: defaults.double(forKey: lastAppSyncKey) > 0,
-            isPreview: false,
-            down: defaults.double(forKey: SharedKey.rateDown),
-            up: defaults.double(forKey: SharedKey.rateUp),
-            updatedAt: timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : Date()
+            monthCellular: monthCellular,
+            monthWiFi: monthWiFi,
+            allTimeTotal: bytes(defaults.double(forKey: Key.allTimeTotal)),
+            planCapacity: capacity,
+            planUsed: planUsed,
+            planRemaining: remaining,
+            planUnlimited: unlimited,
+            resetDay: resetDay,
+            down: defaults.double(forKey: Key.rateDown),
+            up: defaults.double(forKey: Key.rateUp),
+            updatedAt: timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : now,
+            isPreview: false
         )
     }
 
-    private static func resetPeriodIfNeeded(defaults: UserDefaults, now: Date) {
-        let day = dayKey(now)
-        if defaults.string(forKey: SharedKey.dayKey) != day {
-            defaults.set(day, forKey: SharedKey.dayKey)
-            defaults.set(0, forKey: SharedKey.todayTotal)
-            defaults.set(0, forKey: SharedKey.todayCellular)
-            defaults.set(0, forKey: SharedKey.todayWiFi)
+    private static func record(delta: TrafficDelta, from start: Date, to end: Date) {
+        guard delta.total > 0 else { return }
+
+        let safeStart = start == .distantPast || start >= end ? end : start
+        var buckets = loadBuckets()
+        var cursor = safeStart
+        var remaining = delta
+
+        while cursor < end {
+            let dayStart = calendar.startOfDay(for: cursor)
+            let nextDay = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? end
+            let segmentEnd = min(end, nextDay)
+            let isLast = segmentEnd >= end
+
+            let segment: TrafficDelta
+            if isLast {
+                segment = remaining
+            } else {
+                let remainingDuration = max(end.timeIntervalSince(cursor), 0.001)
+                let fraction = min(max(segmentEnd.timeIntervalSince(cursor) / remainingDuration, 0), 1)
+
+                func portion(_ value: UInt64) -> UInt64 {
+                    let scaled = (Double(value) * fraction).rounded()
+                    return scaled >= Double(UInt64.max) ? value : UInt64(max(scaled, 0))
+                }
+
+                segment = TrafficDelta(
+                    wifiReceived: portion(remaining.wifiReceived),
+                    wifiSent: portion(remaining.wifiSent),
+                    cellularReceived: portion(remaining.cellularReceived),
+                    cellularSent: portion(remaining.cellularSent)
+                )
+                remaining = TrafficDelta(
+                    wifiReceived: remaining.wifiReceived - segment.wifiReceived,
+                    wifiSent: remaining.wifiSent - segment.wifiSent,
+                    cellularReceived: remaining.cellularReceived - segment.cellularReceived,
+                    cellularSent: remaining.cellularSent - segment.cellularSent
+                )
+            }
+
+            let bucketKey = key(for: cursor)
+            var bucket = buckets[bucketKey] ?? DailyBucket()
+            bucket.add(total: segment.total, cellular: segment.cellularTotal, wifi: segment.wifiTotal)
+            buckets[bucketKey] = bucket
+            cursor = segmentEnd
         }
 
-        let month = monthKey(now)
-        if defaults.string(forKey: SharedKey.monthKey) != month {
-            defaults.set(month, forKey: SharedKey.monthKey)
-            defaults.set(0, forKey: SharedKey.monthTotal)
-            defaults.set(0, forKey: SharedKey.monthCellular)
-            defaults.set(0, forKey: SharedKey.monthWiFi)
+        let oldAllTime = bytes(defaults.double(forKey: Key.allTimeTotal))
+        defaults.set(Double(saturatingAdd(oldAllTime, delta.total)), forKey: Key.allTimeTotal)
+
+        prune(&buckets, keepingDays: 400, now: end)
+        saveBuckets(buckets)
+    }
+
+    private static func loadBuckets() -> [String: DailyBucket] {
+        guard let data = defaults.data(forKey: Key.dailyBuckets),
+              let decoded = try? JSONDecoder().decode([String: DailyBucket].self, from: data) else {
+            return [:]
         }
+        return decoded
+    }
+
+    private static func saveBuckets(_ buckets: [String: DailyBucket]) {
+        guard let data = try? JSONEncoder().encode(buckets) else { return }
+        defaults.set(data, forKey: Key.dailyBuckets)
+    }
+
+    private static func prune(_ buckets: inout [String: DailyBucket], keepingDays: Int, now: Date) {
+        guard let cutoff = calendar.date(byAdding: .day, value: -keepingDays, to: calendar.startOfDay(for: now)) else {
+            return
+        }
+        buckets = buckets.filter { key, _ in
+            guard let date = date(from: key) else { return false }
+            return date >= cutoff
+        }
+    }
+
+    private static func currentMonthInterval(_ now: Date) -> DateInterval {
+        let start = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? calendar.startOfDay(for: now)
+        let end = calendar.date(byAdding: .month, value: 1, to: start) ?? now
+        return DateInterval(start: start, end: end)
+    }
+
+    private static func currentCycleStart(now: Date, resetDay: Int) -> Date {
+        let components = calendar.dateComponents([.year, .month], from: now)
+        let year = components.year ?? 2001
+        let month = components.month ?? 1
+
+        func start(year: Int, month: Int) -> Date {
+            calendar.date(from: DateComponents(year: year, month: month, day: resetDay)) ?? now
+        }
+
+        let thisMonth = start(year: year, month: month)
+        if now >= thisMonth {
+            return thisMonth
+        }
+
+        let previousMonthAnchor = calendar.date(byAdding: .month, value: -1, to: thisMonth) ?? now
+        let previous = calendar.dateComponents([.year, .month], from: previousMonthAnchor)
+        return start(year: previous.year ?? year, month: previous.month ?? month)
+    }
+
+    private static func key(for date: Date) -> String {
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+
+    private static func date(from key: String) -> Date? {
+        let parts = key.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
     }
 
     private static func countersAreValid(current: RawCounters, previous: RawCounters) -> Bool {
@@ -375,36 +421,24 @@ private enum SharedTrafficStore {
         current.cellularSent >= previous.cellularSent
     }
 
-    private static func add(_ delta: UInt64, to key: String, defaults: UserDefaults) {
-        let old = bytes(defaults.double(forKey: key))
-        let (newValue, overflow) = old.addingReportingOverflow(delta)
-        defaults.set(Double(overflow ? UInt64.max : newValue), forKey: key)
+    private static func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+        let (value, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? UInt64.max : value
     }
 
     private static func bytes(_ value: Double) -> UInt64 {
         guard value.isFinite, value > 0 else { return 0 }
         return value >= Double(UInt64.max) ? UInt64.max : UInt64(value)
     }
-
-    private static func dayKey(_ date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
-        return "\(components.year ?? 0)-\(components.month ?? 0)-\(components.day ?? 0)"
-    }
-
-    private static func monthKey(_ date: Date) -> String {
-        let components = Calendar.current.dateComponents([.year, .month], from: date)
-        return "\(components.year ?? 0)-\(components.month ?? 0)"
-    }
 }
 
-@available(iOS 17.0, *)
 struct RefreshNetFlowIntent: AppIntent {
     static var title: LocalizedStringResource = "刷新流量"
     static var description = IntentDescription("立即重新读取当前设备的网络流量计数。")
     static var openAppWhenRun = false
 
     func perform() async throws -> some IntentResult {
-        await SharedTrafficStore.forceRefresh()
+        await WidgetTrafficStore.forceRefresh()
         WidgetCenter.shared.reloadTimelines(ofKind: netFlowWidgetKind)
         return .result()
     }
@@ -415,7 +449,7 @@ private struct NetFlowEntry: TimelineEntry {
     let snapshot: UsageSnapshot
 }
 
-private struct Provider: TimelineProvider {
+private struct Provider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> NetFlowEntry {
         NetFlowEntry(
             date: .now,
@@ -427,34 +461,40 @@ private struct Provider: TimelineProvider {
                 monthCellular: 0,
                 monthWiFi: 0,
                 allTimeTotal: 0,
-                planCapacity: 0,
+                planCapacity: 30_000_000_000,
                 planUsed: 0,
-                planRemaining: 0,
+                planRemaining: 30_000_000_000,
                 planUnlimited: false,
-                hasSharedContainer: false,
-                hasAppSync: false,
-                isPreview: true,
+                resetDay: 1,
                 down: 0,
                 up: 0,
-                updatedAt: .now
+                updatedAt: .now,
+                isPreview: true
             )
         )
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (NetFlowEntry) -> Void) {
-        let snapshot = context.isPreview ? placeholder(in: context).snapshot : SharedTrafficStore.sample()
-        completion(NetFlowEntry(date: .now, snapshot: snapshot))
+    func snapshot(
+        for configuration: NetFlowWidgetConfigurationIntent,
+        in context: Context
+    ) async -> NetFlowEntry {
+        if context.isPreview {
+            return placeholder(in: context)
+        }
+        return NetFlowEntry(
+            date: .now,
+            snapshot: WidgetTrafficStore.sampleAndLoad(configuration: configuration)
+        )
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<NetFlowEntry>) -> Void) {
+    func timeline(
+        for configuration: NetFlowWidgetConfigurationIntent,
+        in context: Context
+    ) async -> Timeline<NetFlowEntry> {
         let now = Date()
-        let snapshot = SharedTrafficStore.sample(now: now)
+        let snapshot = WidgetTrafficStore.sampleAndLoad(configuration: configuration, now: now)
         let entry = NetFlowEntry(date: now, snapshot: snapshot)
-
-        // 5 分钟是 WidgetKit 建议的最小时间线粒度之一。
-        // 系统仍会根据预算决定真正的自动刷新时间。
-        let next = now.addingTimeInterval(5 * 60)
-        completion(Timeline(entries: [entry], policy: .after(next)))
+        return Timeline(entries: [entry], policy: .after(now.addingTimeInterval(5 * 60)))
     }
 }
 
@@ -488,26 +528,16 @@ private struct NetFlowWidgetView: View {
 
     private var planProgress: Double {
         guard !entry.snapshot.planUnlimited,
-              entry.snapshot.planCapacity > 0 else {
-            return 0
-        }
-
-        return min(
-            max(
-                Double(entry.snapshot.planUsed) /
-                Double(entry.snapshot.planCapacity),
-                0
-            ),
-            1
-        )
+              entry.snapshot.planCapacity > 0 else { return 0 }
+        return min(max(Double(entry.snapshot.planUsed) / Double(entry.snapshot.planCapacity), 0), 1)
     }
 
     private var planPercent: Int {
         Int((planProgress * 100).rounded())
     }
 
-    private func trafficText(_ bytes: UInt64) -> String {
-        entry.snapshot.isPreview ? "—" : Format.bytes(bytes)
+    private func trafficText(_ value: UInt64) -> String {
+        entry.snapshot.isPreview ? "—" : Format.bytes(value)
     }
 
     var body: some View {
@@ -532,9 +562,7 @@ private struct NetFlowWidgetView: View {
                 Label("NetFlow", systemImage: "waveform.path.ecg")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.indigo)
-
                 Spacer()
-
                 refreshButton
             }
 
@@ -550,34 +578,24 @@ private struct NetFlowWidgetView: View {
                 Spacer()
                 Text(trafficText(entry.snapshot.allTimeTotal))
                     .font(.system(size: 10, weight: .semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
             }
 
             Divider()
 
             if entry.snapshot.isPreview {
-                HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("添加后显示真实流量")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Text("今日 · 本月 · 累计 · 套餐比例")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.tertiary)
-                    }
-                    Spacer()
-                }
+                Text("添加后自动统计；长按可设置套餐")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
             } else if entry.snapshot.planUnlimited {
                 HStack {
-                    Label("套餐", systemImage: "simcard.2.fill")
+                    Text("套餐")
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text("不限量")
                         .font(.system(size: 10, weight: .bold))
                 }
-            } else if entry.snapshot.planCapacity > 0 {
+            } else {
                 HStack {
                     Text("套餐已用")
                         .font(.system(size: 9))
@@ -592,39 +610,10 @@ private struct NetFlowWidgetView: View {
                     .tint(planProgress >= 0.9 ? .red : .indigo)
 
                 HStack {
-                    Text(
-                        Format.bytes(entry.snapshot.planUsed)
-                        + " / "
-                        + Format.bytes(entry.snapshot.planCapacity)
-                    )
-                    .font(.system(size: 9, weight: .medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.65)
-
-                    Spacer()
-
-                    Text(Format.time(entry.snapshot.updatedAt))
-                        .font(.system(size: 8))
-                        .foregroundStyle(.tertiary)
-                }
-            } else {
-                HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(
-                            entry.snapshot.hasAppSync
-                            ? "套餐未设置"
-                            : (entry.snapshot.hasSharedContainer ? "套餐待同步" : "独立统计模式")
-                        )
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        Text(
-                            entry.snapshot.hasAppSync
-                            ? "请在 App 内设置套餐"
-                            : (entry.snapshot.hasSharedContainer ? "打开 NetFlow 一次即可" : "重签需保留 App Group")
-                        )
-                        .font(.system(size: 8))
-                        .foregroundStyle(.tertiary)
-                    }
+                    Text(Format.bytes(entry.snapshot.planUsed) + " / " + Format.bytes(entry.snapshot.planCapacity))
+                        .font(.system(size: 9, weight: .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
                     Spacer()
                     Text(Format.time(entry.snapshot.updatedAt))
                         .font(.system(size: 8))
@@ -642,13 +631,10 @@ private struct NetFlowWidgetView: View {
                 Label("NetFlow 流量", systemImage: "chart.line.uptrend.xyaxis")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.indigo)
-
                 Spacer()
-
                 Text("更新 " + Format.time(entry.snapshot.updatedAt))
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
-
                 refreshButton
             }
 
@@ -663,12 +649,11 @@ private struct NetFlowWidgetView: View {
             if entry.snapshot.isPreview {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("添加后显示真实流量")
+                        Text("添加后自动统计")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text("今日 · 本月 · 累计 · 套餐用量与比例")
+                        Text("长按小组件 → 编辑小组件，可设置套餐总量和重置日")
                             .font(.system(size: 9))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                     }
                     Spacer()
                 }
@@ -681,27 +666,19 @@ private struct NetFlowWidgetView: View {
                         Text("不限量")
                             .font(.headline.weight(.bold))
                     }
-
                     Spacer()
-
                     speedPair
                 }
-            } else if entry.snapshot.planCapacity > 0 {
+            } else {
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("套餐使用")
+                        Text("套餐使用 · 每月 \(entry.snapshot.resetDay) 日重置")
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)
-
-                        Text(
-                            Format.bytes(entry.snapshot.planUsed)
-                            + " / "
-                            + Format.bytes(entry.snapshot.planCapacity)
-                        )
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-
+                        Text(Format.bytes(entry.snapshot.planUsed) + " / " + Format.bytes(entry.snapshot.planCapacity))
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                         Text("剩余 " + Format.bytes(entry.snapshot.planRemaining))
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.secondary)
@@ -721,36 +698,13 @@ private struct NetFlowWidgetView: View {
                     speedPair
                     Spacer()
                     Text(
-                        "蜂窝 "
-                        + Format.bytes(entry.snapshot.monthCellular)
-                        + " · Wi‑Fi "
-                        + Format.bytes(entry.snapshot.monthWiFi)
+                        "蜂窝 " + Format.bytes(entry.snapshot.monthCellular)
+                        + " · Wi-Fi " + Format.bytes(entry.snapshot.monthWiFi)
                     )
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)
-                }
-            } else {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(
-                            entry.snapshot.hasAppSync
-                            ? "套餐未设置"
-                            : (entry.snapshot.hasSharedContainer ? "套餐待同步" : "共享权限未生效")
-                        )
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        Text(
-                            entry.snapshot.hasAppSync
-                            ? "请在 App 内设置套餐"
-                            : (entry.snapshot.hasSharedContainer ? "打开 NetFlow 一次后自动同步" : "今日 / 本月 / 累计仍可正常统计")
-                        )
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                    }
-                    Spacer()
-                    speedPair
                 }
             }
         }
@@ -760,29 +714,17 @@ private struct NetFlowWidgetView: View {
 
     private var accessoryRectangular: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(
-                "今日 " + trafficText(entry.snapshot.todayTotal)
-                + " · 本月 " + trafficText(entry.snapshot.monthTotal)
-            )
-            .font(.headline)
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
+            Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 本月 " + trafficText(entry.snapshot.monthTotal))
+                .font(.headline)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
 
             if entry.snapshot.planUnlimited {
-                Text("累计 " + trafficText(entry.snapshot.allTimeTotal) + " · 套餐不限量")
+                Text("累计 " + trafficText(entry.snapshot.allTimeTotal) + " · 不限量")
                     .font(.caption2)
-                    .lineLimit(1)
-            } else if entry.snapshot.planCapacity > 0 {
-                Text(
-                    "套餐 " + String(planPercent) + "%"
-                    + " · 剩余 " + Format.bytes(entry.snapshot.planRemaining)
-                )
-                .font(.caption2)
-                .lineLimit(1)
             } else {
-                Text("累计 " + trafficText(entry.snapshot.allTimeTotal))
+                Text("套餐 " + String(planPercent) + "% · 剩余 " + Format.bytes(entry.snapshot.planRemaining))
                     .font(.caption2)
-                    .lineLimit(1)
             }
         }
     }
@@ -790,13 +732,8 @@ private struct NetFlowWidgetView: View {
     private var accessoryInline: some View {
         if entry.snapshot.planUnlimited {
             Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 不限量")
-        } else if entry.snapshot.planCapacity > 0 {
-            Text(
-                "今日 " + trafficText(entry.snapshot.todayTotal)
-                + " · 套餐 " + String(planPercent) + "%"
-            )
         } else {
-            Text("今日 " + trafficText(entry.snapshot.todayTotal))
+            Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 套餐 " + String(planPercent) + "%")
         }
     }
 
@@ -813,17 +750,11 @@ private struct NetFlowWidgetView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func mediumMetric(
-        _ title: String,
-        _ value: UInt64,
-        _ icon: String,
-        _ color: Color
-    ) -> some View {
+    private func mediumMetric(_ title: String, _ value: UInt64, _ icon: String, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Label(title, systemImage: icon)
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(color)
-
             Text(entry.snapshot.isPreview ? "—" : Format.bytes(value))
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .lineLimit(1)
@@ -844,40 +775,14 @@ private struct NetFlowWidgetView: View {
         .minimumScaleFactor(0.65)
     }
 
-    @ViewBuilder
     private var refreshButton: some View {
-        if #available(iOSApplicationExtension 17.0, *) {
-            Button(intent: RefreshNetFlowIntent()) {
-                Image(systemName: "arrow.clockwise.circle.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.indigo)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("立即刷新流量")
-        } else {
-            Image(systemName: "arrow.clockwise.circle")
-                .foregroundStyle(.secondary)
+        Button(intent: RefreshNetFlowIntent()) {
+            Image(systemName: "arrow.clockwise.circle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.indigo)
         }
-    }
-
-    private func metricRow(
-        _ title: String,
-        _ value: String,
-        _ icon: String,
-        _ color: Color
-    ) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: icon)
-                .foregroundStyle(color)
-            Text(title)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 4)
-            Text(value)
-                .fontWeight(.semibold)
-        }
-        .font(.system(size: 10))
-        .lineLimit(1)
-        .minimumScaleFactor(0.65)
+        .buttonStyle(.plain)
+        .accessibilityLabel("立即刷新流量")
     }
 }
 
@@ -901,16 +806,19 @@ private extension View {
     }
 }
 
-
 struct NetFlowUsageWidget: Widget {
     let kind = netFlowWidgetKind
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: Provider()) { entry in
+        AppIntentConfiguration(
+            kind: kind,
+            intent: NetFlowWidgetConfigurationIntent.self,
+            provider: Provider()
+        ) { entry in
             NetFlowWidgetView(entry: entry)
         }
         .configurationDisplayName("NetFlow 流量")
-        .description("查看今日、本月流量和最近网速；iOS 17 及以上可直接点小组件刷新。")
+        .description("独立统计今日、本月、累计和套餐用量；不依赖 App Group。")
         .supportedFamilies([
             .systemSmall,
             .systemMedium,
