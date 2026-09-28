@@ -1,18 +1,9 @@
 import SwiftUI
 
-@MainActor
 enum AppChrome {
-    static var pagePadding: CGFloat {
-        UIScreen.main.bounds.width <= 390 ? 14 : 18
-    }
-
-    static var cardPadding: CGFloat {
-        UIScreen.main.bounds.width <= 390 ? 16 : 18
-    }
-
-    static var spacing: CGFloat {
-        UIScreen.main.bounds.width <= 390 ? 14 : 18
-    }
+    static let pagePadding: CGFloat = 16
+    static let cardPadding: CGFloat = 16
+    static let spacing: CGFloat = 16
 
     static let accent = Color.indigo
     static let download = Color.blue
