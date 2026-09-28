@@ -3,15 +3,29 @@ import SwiftUI
 @MainActor
 enum AppChrome {
     static var pagePadding: CGFloat {
-        UIScreen.main.bounds.width <= 390 ? 10 : 14
+        UIScreen.main.bounds.width <= 390 ? 14 : 18
     }
 
     static var cardPadding: CGFloat {
-        UIScreen.main.bounds.width <= 390 ? 12 : 16
+        UIScreen.main.bounds.width <= 390 ? 16 : 18
     }
 
     static var spacing: CGFloat {
-        UIScreen.main.bounds.width <= 390 ? 10 : 14
+        UIScreen.main.bounds.width <= 390 ? 14 : 18
+    }
+
+    static let accent = Color.indigo
+    static let download = Color.blue
+    static let upload = Color.green
+    static let cellular = Color.orange
+    static let wifi = Color.cyan
+
+    static var heroGradient: LinearGradient {
+        LinearGradient(
+            colors: [Color.indigo, Color.blue],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 }
 
@@ -20,26 +34,30 @@ extension View {
         font(.headline)
             .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    func netFlowCard(cornerRadius: CGFloat = 18) -> some View {
+    func netFlowCard(cornerRadius: CGFloat = 20) -> some View {
         padding(AppChrome.cardPadding)
             .foregroundStyle(.primary)
-            .background(
-                Color(uiColor: .secondarySystemGroupedBackground),
-                in: RoundedRectangle(cornerRadius: cornerRadius)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(Color(uiColor: .separator).opacity(0.45), lineWidth: 0.75)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.primary.opacity(0.06), lineWidth: 0.8)
             )
+            .shadow(color: Color.black.opacity(0.045), radius: 10, x: 0, y: 4)
     }
 
     func netFlowPageBackground() -> some View {
-        background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        background(
+            LinearGradient(
+                colors: [
+                    Color(uiColor: .systemGroupedBackground),
+                    Color(uiColor: .secondarySystemGroupedBackground).opacity(0.72)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+        )
     }
 }
