@@ -7,6 +7,7 @@ final class NetFlowLiveActivityManager {
     static let shared = NetFlowLiveActivityManager()
 
     private var lastUpdateAt = Date.distantPast
+    private var hasRequestedThisSession = false
     private let minimumUpdateInterval: TimeInterval = 5
 
     private init() {}
@@ -25,6 +26,58 @@ final class NetFlowLiveActivityManager {
         }
         lastUpdateAt = now
 
+        let content = makeContent(records: records, plan: plan, rate: rate, now: now)
+
+        if let existing = Activity<NetFlowActivityAttributes>.activities.first {
+            await existing.update(content)
+            return
+        }
+
+        // Only auto-create once during one app process lifetime. If the user
+        // dismisses the Live Activity manually, do not immediately recreate it.
+        guard !hasRequestedThisSession else { return }
+        hasRequestedThisSession = true
+
+        do {
+            _ = try Activity<NetFlowActivityAttributes>.request(
+                attributes: NetFlowActivityAttributes(title: "NetFlow"),
+                content: content,
+                pushType: nil
+            )
+        } catch {
+            // Live Activity is optional. Failure must never block traffic sampling.
+        }
+    }
+
+    func updateExisting(
+        records: [DailyUsageRecord],
+        plan: DataPlan,
+        rate: NetworkRate,
+        now: Date = Date()
+    ) async {
+        guard let existing = Activity<NetFlowActivityAttributes>.activities.first else {
+            return
+        }
+
+        let content = makeContent(records: records, plan: plan, rate: rate, now: now)
+        await existing.update(content)
+        lastUpdateAt = now
+    }
+
+    func endAll(immediately: Bool = true) async {
+        let policy: ActivityUIDismissalPolicy = immediately ? .immediate : .default
+
+        for activity in Activity<NetFlowActivityAttributes>.activities {
+            await activity.end(nil, dismissalPolicy: policy)
+        }
+    }
+
+    private func makeContent(
+        records: [DailyUsageRecord],
+        plan: DataPlan,
+        rate: NetworkRate,
+        now: Date
+    ) -> ActivityContent<NetFlowActivityAttributes.ContentState> {
         let calendar = Calendar.current
         let today = records.first { calendar.isDateInToday($0.date) }
 
@@ -47,32 +100,9 @@ final class NetFlowLiveActivityManager {
             updatedAt: now
         )
 
-        let content = ActivityContent(
+        return ActivityContent(
             state: state,
             staleDate: now.addingTimeInterval(30)
         )
-
-        if let existing = Activity<NetFlowActivityAttributes>.activities.first {
-            await existing.update(content)
-            return
-        }
-
-        do {
-            _ = try Activity<NetFlowActivityAttributes>.request(
-                attributes: NetFlowActivityAttributes(title: "NetFlow"),
-                content: content,
-                pushType: nil
-            )
-        } catch {
-            // Live Activity is optional. Failure should never block traffic sampling.
-        }
-    }
-
-    func endAll(immediately: Bool = true) async {
-        let policy: ActivityUIDismissalPolicy = immediately ? .immediate : .default
-
-        for activity in Activity<NetFlowActivityAttributes>.activities {
-            await activity.end(nil, dismissalPolicy: policy)
-        }
     }
 }
