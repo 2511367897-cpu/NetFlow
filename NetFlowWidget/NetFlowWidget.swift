@@ -4,6 +4,7 @@ import AppIntents
 import Darwin
 
 private let netFlowWidgetKind = "NetFlowUsageWidget"
+private let configuredWidgetKind = "NetFlowConfiguredUsageWidget"
 
 struct NetFlowWidgetConfigurationIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "NetFlow 套餐设置"
@@ -116,6 +117,7 @@ private struct UsageSnapshot {
     var planRemaining: UInt64 = 0
     var planUnlimited = false
     var resetDay = 1
+    var planConfigured = true
 
     var down: Double = 0
     var up: Double = 0
@@ -219,16 +221,31 @@ private enum WidgetTrafficStore {
         configuration: NetFlowWidgetConfigurationIntent,
         now: Date = Date()
     ) -> UsageSnapshot {
+        sampleAndLoad(planCapacityGB: configuration.planCapacityGB,
+                      resetDay: configuration.resetDay,
+                      unlimited: configuration.unlimited,
+                      now: now)
+    }
+
+    static func sampleAndLoad(
+        planCapacityGB: Double,
+        resetDay: Int,
+        unlimited: Bool,
+        now: Date = Date()
+    ) -> UsageSnapshot {
         sampleLock.lock()
         defer { sampleLock.unlock() }
         if let current = RawCounterReader.read() {
             consume(current: current, now: now)
         }
-        return load(configuration: configuration, now: now)
+        return load(planCapacityGB: planCapacityGB, resetDay: resetDay,
+                    unlimited: unlimited, now: now)
     }
 
-    static func load(
-        configuration: NetFlowWidgetConfigurationIntent,
+    private static func load(
+        planCapacityGB: Double,
+        resetDay requestedResetDay: Int,
+        unlimited: Bool,
         now: Date = Date()
     ) -> UsageSnapshot {
         let buckets = loadBuckets()
@@ -245,16 +262,15 @@ private enum WidgetTrafficStore {
         let monthCellular = monthBuckets.reduce(UInt64(0)) { saturatingAdd($0, $1.cellular) }
         let monthWiFi = monthBuckets.reduce(UInt64(0)) { saturatingAdd($0, $1.wifi) }
 
-        let resetDay = min(max(configuration.resetDay, 1), 28)
+        let resetDay = min(max(requestedResetDay, 1), 28)
         let cycleStart = currentCycleStart(now: now, resetDay: resetDay)
         let planUsed = buckets.compactMap { key, bucket -> UInt64? in
             guard let date = date(from: key), date >= cycleStart && date <= now else { return nil }
             return bucket.cellular
         }.reduce(UInt64(0), saturatingAdd)
 
-        let unlimited = configuration.unlimited
-        let safeGB = configuration.planCapacityGB.isFinite
-            ? min(max(configuration.planCapacityGB, 0), 100_000)
+        let safeGB = planCapacityGB.isFinite
+            ? min(max(planCapacityGB, 0), 100_000)
             : 0
         let capacity = unlimited ? UInt64(0) : UInt64(safeGB * 1_000_000_000)
         let remaining = unlimited ? 0 : (capacity > planUsed ? capacity - planUsed : 0)
@@ -419,6 +435,7 @@ struct RefreshNetFlowIntent: AppIntent {
     func perform() async throws -> some IntentResult {
         await WidgetTrafficStore.forceRefresh()
         WidgetCenter.shared.reloadTimelines(ofKind: netFlowWidgetKind)
+        WidgetCenter.shared.reloadTimelines(ofKind: configuredWidgetKind)
         return .result()
     }
 }
@@ -474,6 +491,35 @@ private struct Provider: AppIntentTimelineProvider {
         let snapshot = WidgetTrafficStore.sampleAndLoad(configuration: configuration, now: now)
         let entry = NetFlowEntry(date: now, snapshot: snapshot)
         return Timeline(entries: [entry], policy: .after(now.addingTimeInterval(5 * 60)))
+    }
+}
+
+// The 4.2.8 widget used StaticConfiguration with netFlowWidgetKind. Keeping
+// that kind static lets iOS restore existing instances without an intent.
+private struct LegacyProvider: TimelineProvider {
+    func placeholder(in context: Context) -> NetFlowEntry {
+        let original = Provider().placeholder(in: context)
+        var snapshot = original.snapshot
+        snapshot.planConfigured = false
+        return NetFlowEntry(date: original.date, snapshot: snapshot)
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (NetFlowEntry) -> Void) {
+        completion(context.isPreview ? placeholder(in: context) : entry(now: Date()))
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<NetFlowEntry>) -> Void) {
+        let now = Date()
+        completion(Timeline(entries: [entry(now: now)],
+                            policy: .after(now.addingTimeInterval(5 * 60))))
+    }
+
+    private func entry(now: Date) -> NetFlowEntry {
+        var snapshot = WidgetTrafficStore.sampleAndLoad(
+            planCapacityGB: 0, resetDay: 1, unlimited: true, now: now
+        )
+        snapshot.planConfigured = false
+        return NetFlowEntry(date: now, snapshot: snapshot)
     }
 }
 
@@ -562,8 +608,12 @@ private struct NetFlowWidgetView: View {
             Divider()
 
             if entry.snapshot.isPreview {
-                Text("等待下次采样；长按可设置套餐")
+                Text(entry.snapshot.planConfigured ? "等待下次采样；长按可设置套餐" : "等待下次采样")
                     .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            } else if !entry.snapshot.planConfigured {
+                Text("套餐设置请添加“NetFlow 套餐”小组件")
+                    .font(.system(size: 9))
                     .foregroundStyle(.secondary)
             } else if entry.snapshot.planUnlimited {
                 HStack {
@@ -636,6 +686,13 @@ private struct NetFlowWidgetView: View {
                     }
                     Spacer()
                 }
+            } else if !entry.snapshot.planConfigured {
+                HStack {
+                    Text("今日、本月和累计流量独立统计")
+                        .font(.caption2)
+                    Spacer()
+                    speedPair
+                }
             } else if entry.snapshot.planUnlimited {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
@@ -707,6 +764,9 @@ private struct NetFlowWidgetView: View {
 
             if entry.snapshot.isPreview {
                 EmptyView()
+            } else if !entry.snapshot.planConfigured {
+                Text("累计 " + trafficText(entry.snapshot.allTimeTotal))
+                    .font(.caption2)
             } else if entry.snapshot.planUnlimited {
                 Text("累计 " + trafficText(entry.snapshot.allTimeTotal) + " · 不限量")
                     .font(.caption2)
@@ -720,6 +780,8 @@ private struct NetFlowWidgetView: View {
     private var accessoryInline: some View {
         if entry.snapshot.isPreview {
             Text("NetFlow · 等待采样")
+        } else if !entry.snapshot.planConfigured {
+            Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 本月 " + trafficText(entry.snapshot.monthTotal))
         } else if entry.snapshot.planUnlimited {
             Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 不限量")
         } else {
@@ -800,15 +862,11 @@ struct NetFlowUsageWidget: Widget {
     let kind = netFlowWidgetKind
 
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(
-            kind: kind,
-            intent: NetFlowWidgetConfigurationIntent.self,
-            provider: Provider()
-        ) { entry in
+        StaticConfiguration(kind: kind, provider: LegacyProvider()) { entry in
             NetFlowWidgetView(entry: entry)
         }
         .configurationDisplayName("NetFlow 流量")
-        .description("独立统计今日、本月、累计和套餐用量；约每 5 分钟请求更新，实际由 iOS 调度。")
+        .description("兼容旧小组件，独立统计今日、本月和累计流量。")
         .supportedFamilies([
             .systemSmall,
             .systemMedium,
@@ -818,9 +876,27 @@ struct NetFlowUsageWidget: Widget {
     }
 }
 
+struct NetFlowConfiguredWidget: Widget {
+    let kind = configuredWidgetKind
+
+    var body: some WidgetConfiguration {
+        AppIntentConfiguration(
+            kind: kind,
+            intent: NetFlowWidgetConfigurationIntent.self,
+            provider: Provider()
+        ) { entry in
+            NetFlowWidgetView(entry: entry)
+        }
+        .configurationDisplayName("NetFlow 套餐")
+        .description("独立统计流量并设置套餐；约每 5 分钟请求更新，实际由 iOS 调度。")
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline])
+    }
+}
+
 @main
 struct NetFlowWidgetBundle: WidgetBundle {
     var body: some Widget {
         NetFlowUsageWidget()
+        NetFlowConfiguredWidget()
     }
 }
