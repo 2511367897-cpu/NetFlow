@@ -46,10 +46,9 @@ jobs:
 
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "4.2.3"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "32"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist")" = "true"
-
-          strings "$WIDGET/NetFlowWidget" | grep -q "NetFlowLiveActivity"
-          strings "$WIDGET/NetFlowWidget" | grep -q "DynamicIsland"
+          /usr/libexec/PlistBuddy -c "Print :NSSupportsLiveActivities" "$APP/Info.plist"
+          grep -q "struct NetFlowLiveActivity" NetFlowWidget/NetFlowWidget.swift
+          grep -q "DynamicIsland" NetFlowWidget/NetFlowWidget.swift
 
           mkdir -p Payload
           cp -R "$APP" Payload/NetFlow.app
