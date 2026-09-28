@@ -82,9 +82,11 @@ final class AppStore: ObservableObject {
         liveSnapshot = result.snapshot
         currentRate = result.rate
         merge(delta: result.delta, from: previousSnapshot.timestamp, to: result.snapshot.timestamp)
-        normalizePlanCycle(now: result.snapshot.timestamp)
+        let cycleChanged = normalizePlanCycle(now: result.snapshot.timestamp)
+        let alertCountBefore = alerts.count
         checkAlerts()
-        save(forcePersistence: false)
+        let alertTriggered = alerts.count != alertCountBefore
+        save(forcePersistence: cycleChanged || alertTriggered)
 
         if #available(iOS 16.2, *) {
             await NetFlowLiveActivityManager.shared.startOrUpdate(
