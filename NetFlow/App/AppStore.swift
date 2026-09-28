@@ -83,6 +83,14 @@ final class AppStore: ObservableObject {
         normalizePlanCycle(now: result.snapshot.timestamp)
         checkAlerts()
         save()
+
+        if #available(iOS 16.2, *) {
+            await NetFlowLiveActivityManager.shared.startOrUpdate(
+                records: dailyRecords,
+                plan: plan,
+                rate: currentRate
+            )
+        }
     }
 
     func refreshContext() async {
@@ -295,6 +303,17 @@ final class AppStore: ObservableObject {
         tracker.resetBaseline()
         NetworkSnapshotCache.clear()
         save()
+
+        if #available(iOS 16.2, *) {
+            Task { @MainActor in
+                await NetFlowLiveActivityManager.shared.startOrUpdate(
+                    records: dailyRecords,
+                    plan: plan,
+                    rate: currentRate,
+                    force: true
+                )
+            }
+        }
     }
 
     private func portion(_ value: UInt64, fraction: Double) -> UInt64 {
