@@ -1,4 +1,5 @@
 import SwiftUI
+import Charts
 
 struct OverviewView: View {
     @EnvironmentObject var store: AppStore
@@ -9,46 +10,32 @@ struct OverviewView: View {
         self.context = context
     }
 
-    private var appLocale: Locale { store.settings.appLanguage.locale }
-
     private var today: DailyUsageRecord? {
         store.dailyRecords.first { Calendar.current.isDateInToday($0.date) }
     }
 
+    private var todayTotal: UInt64 { today?.totalBytes ?? 0 }
     private var todayDownload: UInt64 {
         (today?.wifiReceived ?? 0) + (today?.cellularReceived ?? 0)
     }
-
     private var todayUpload: UInt64 {
         (today?.wifiSent ?? 0) + (today?.cellularSent ?? 0)
-    }
-
-    private var todayTotal: UInt64 {
-        today?.totalBytes ?? 0
     }
 
     private var monthRecords: [DailyUsageRecord] {
         store.dailyRecords.filter { monthInterval.contains($0.date) }
     }
 
-    private var monthDownload: UInt64 {
-        monthRecords.reduce(0) { $0 + $1.wifiReceived + $1.cellularReceived }
-    }
-
-    private var monthUpload: UInt64 {
-        monthRecords.reduce(0) { $0 + $1.wifiSent + $1.cellularSent }
+    private var monthTotal: UInt64 {
+        monthRecords.reduce(0) { $0 &+ $1.totalBytes }
     }
 
     private var monthCellular: UInt64 {
-        monthRecords.reduce(0) { $0 + $1.cellularTotalBytes }
+        monthRecords.reduce(0) { $0 &+ $1.cellularTotalBytes }
     }
 
     private var monthWiFi: UInt64 {
-        monthRecords.reduce(0) { $0 + $1.wifiTotalBytes }
-    }
-
-    private var monthTotal: UInt64 {
-        monthRecords.reduce(0) { $0 + $1.totalBytes }
+        monthRecords.reduce(0) { $0 &+ $1.wifiTotalBytes }
     }
 
     private var planUsed: UInt64 {
@@ -67,17 +54,27 @@ struct OverviewView: View {
         return min(Double(planUsed) / Double(store.plan.effectiveCapacityBytes), 1)
     }
 
+    private var recentRecords: [DailyUsageRecord] {
+        Array(store.dailyRecords.prefix(7)).reversed()
+    }
+
+    private var dataAge: TimeInterval? {
+        guard let updated = today?.lastUpdated else { return nil }
+        return Date().timeIntervalSince(updated)
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: AppChrome.spacing) {
-                header
-                liveSpeed
-                todayUsage
-                monthUsage
-                planCard
-                connectionCard
+                topBar
+                planHero
+                statsGrid
+                liveSpeedCard
+                weeklyChart
+                networkCard
             }
-            .padding(AppChrome.pagePadding)
+            .padding(.horizontal, AppChrome.pagePadding)
+            .padding(.bottom, 24)
         }
         .netFlowPageBackground()
         .navigationTitle("")
@@ -87,17 +84,15 @@ struct OverviewView: View {
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+    private var topBar: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text("流量")
-                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                TimelineView(.periodic(from: .now, by: 1)) { value in
-                    Text(value.date.formatted(date: .abbreviated, time: .standard))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+
+                Text("今天 · \(Date().formatted(date: .abbreviated, time: .omitted))")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -106,233 +101,360 @@ struct OverviewView: View {
                 Task { await refreshEverything() }
             } label: {
                 Image(systemName: isRefreshing ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
-                    .font(.title3.weight(.semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .frame(width: 42, height: 42)
-                    .background(Color.accentColor.opacity(0.10), in: Circle())
+                    .background(.regularMaterial, in: Circle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Text("refresh"))
+            .accessibilityLabel("刷新")
         }
-        .netFlowCard(cornerRadius: 20)
+        .padding(.top, 8)
     }
 
-    private var liveSpeed: some View {
+    private var planHero: some View {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 7) {
+                Text(store.plan.isUnlimited ? "本周期已使用" : "本周期剩余")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.78))
+
+                Text(
+                    store.plan.isUnlimited
+                    ? ByteFormat.string(planUsed)
+                    : ByteFormat.string(planRemaining)
+                )
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.62)
+                .contentTransition(.numericText())
+
+                Text(store.plan.isUnlimited
+                     ? "不限量套餐"
+                     : "已用 \(ByteFormat.string(planUsed)) / \(ByteFormat.string(store.plan.effectiveCapacityBytes))")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.78))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+
+                if let age = dataAge {
+                    Label(
+                        age > 300 ? "数据可能滞后，点右上角刷新" : "数据已同步",
+                        systemImage: age > 300 ? "exclamationmark.circle.fill" : "checkmark.circle.fill"
+                    )
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(age > 300 ? 0.95 : 0.72))
+                    .padding(.top, 2)
+                }
+            }
+
+            Spacer(minLength: 4)
+
+            if !store.plan.isUnlimited {
+                ZStack {
+                    Circle()
+                        .stroke(.white.opacity(0.18), lineWidth: 9)
+
+                    Circle()
+                        .trim(from: 0, to: planProgress)
+                        .stroke(
+                            .white,
+                            style: StrokeStyle(lineWidth: 9, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+
+                    VStack(spacing: 0) {
+                        Text("\(Int((planProgress * 100).rounded()))%")
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                        Text("已用")
+                            .font(.caption2)
+                            .opacity(0.75)
+                    }
+                    .foregroundStyle(.white)
+                }
+                .frame(width: 90, height: 90)
+            } else {
+                Image(systemName: "infinity.circle.fill")
+                    .font(.system(size: 72))
+                    .foregroundStyle(.white.opacity(0.92))
+            }
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppChrome.heroGradient, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .shadow(color: Color.indigo.opacity(0.22), radius: 16, x: 0, y: 8)
+    }
+
+    private var statsGrid: some View {
+        LazyVGrid(
+            columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+            spacing: 12
+        ) {
+            metricTile(
+                title: "今日",
+                value: ByteFormat.string(todayTotal),
+                subtitle: "↓ \(ByteFormat.string(todayDownload))  ↑ \(ByteFormat.string(todayUpload))",
+                icon: "sun.max.fill",
+                tint: AppChrome.download
+            )
+
+            metricTile(
+                title: "本月",
+                value: ByteFormat.string(monthTotal),
+                subtitle: "\(Calendar.current.component(.month, from: Date())) 月累计",
+                icon: "calendar",
+                tint: AppChrome.accent
+            )
+
+            metricTile(
+                title: "蜂窝数据",
+                value: ByteFormat.string(monthCellular),
+                subtitle: "本月",
+                icon: "antenna.radiowaves.left.and.right",
+                tint: AppChrome.cellular
+            )
+
+            metricTile(
+                title: "Wi‑Fi",
+                value: ByteFormat.string(monthWiFi),
+                subtitle: "本月",
+                icon: "wifi",
+                tint: AppChrome.wifi
+            )
+        }
+    }
+
+    private var liveSpeedCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Label("实时网速", systemImage: "waveform.path.ecg")
                     .font(.headline)
+
                 Spacer()
-                Text(connectionName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(isConnected ? Color.green : Color.secondary)
+                        .frame(width: 7, height: 7)
+                    Text(connectionName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
 
             HStack(spacing: 12) {
-                liveMetric(
+                speedMetric(
                     title: "下载",
                     value: ByteFormat.rate(store.currentRate.cellularDown + store.currentRate.wifiDown),
-                    icon: "arrow.down.circle.fill"
+                    icon: "arrow.down",
+                    tint: AppChrome.download
                 )
 
-                Divider().frame(height: 52)
+                Divider().frame(height: 62)
 
-                liveMetric(
+                speedMetric(
                     title: "上传",
                     value: ByteFormat.rate(store.currentRate.cellularUp + store.currentRate.wifiUp),
-                    icon: "arrow.up.circle.fill"
+                    icon: "arrow.up",
+                    tint: AppChrome.upload
                 )
             }
         }
-        .netFlowCard(cornerRadius: 20)
+        .netFlowCard(cornerRadius: 22)
     }
 
-    private var todayUsage: some View {
+    private var weeklyChart: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("今日流量", systemImage: "calendar")
+                Text("最近 7 天")
                     .font(.headline)
+
                 Spacer()
-                Text(ByteFormat.string(todayTotal))
-                    .font(.system(.title2, design: .rounded, weight: .bold))
-                    .monospacedDigit()
-            }
 
-            HStack(spacing: 12) {
-                valueMetric("下载", ByteFormat.string(todayDownload), "arrow.down")
-                valueMetric("上传", ByteFormat.string(todayUpload), "arrow.up")
-            }
-
-            Divider()
-
-            usageRow(
-                title: "蜂窝数据",
-                icon: "antenna.radiowaves.left.and.right",
-                value: ByteFormat.string(today?.cellularTotalBytes ?? 0)
-            )
-            usageRow(
-                title: "Wi‑Fi",
-                icon: "wifi",
-                value: ByteFormat.string(today?.wifiTotalBytes ?? 0)
-            )
-        }
-        .netFlowCard(cornerRadius: 20)
-    }
-
-    private var monthUsage: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Label("本月流量", systemImage: "calendar.badge.clock")
-                    .font(.headline)
-                Spacer()
-                Text(ByteFormat.string(monthTotal))
-                    .font(.system(.title2, design: .rounded, weight: .bold))
-                    .monospacedDigit()
-            }
-
-            HStack(spacing: 12) {
-                valueMetric("下载", ByteFormat.string(monthDownload), "arrow.down")
-                valueMetric("上传", ByteFormat.string(monthUpload), "arrow.up")
-            }
-
-            Divider()
-
-            usageRow(
-                title: "蜂窝数据",
-                icon: "antenna.radiowaves.left.and.right",
-                value: ByteFormat.string(monthCellular)
-            )
-            usageRow(
-                title: "Wi‑Fi",
-                icon: "wifi",
-                value: ByteFormat.string(monthWiFi)
-            )
-        }
-        .netFlowCard(cornerRadius: 20)
-    }
-
-    private var planCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("流量套餐", systemImage: "simcard.2.fill")
-                    .font(.headline)
-                Spacer()
-                Text(store.plan.isUnlimited ? "不限量" : ByteFormat.string(store.plan.effectiveCapacityBytes))
+                Text(ByteFormat.string(recentRecords.reduce(0) { $0 &+ $1.totalBytes }))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
 
-            if store.plan.isUnlimited {
-                HStack {
-                    Text("已使用")
-                    Spacer()
-                    Text(ByteFormat.string(planUsed)).bold()
-                }
+            if recentRecords.isEmpty {
+                ContentUnavailableView(
+                    "暂无流量记录",
+                    systemImage: "chart.xyaxis.line",
+                    description: Text("使用一段时间后这里会显示每日趋势")
+                )
+                .frame(height: 170)
             } else {
-                ProgressView(value: planProgress)
-                    .tint(planProgress >= 0.9 ? .red : .green)
+                Chart(recentRecords) { record in
+                    AreaMark(
+                        x: .value("日期", record.date, unit: .day),
+                        y: .value("流量", record.totalBytes)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                Color.indigo.opacity(0.32),
+                                Color.indigo.opacity(0.02)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
 
-                HStack {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("已使用")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(ByteFormat.string(planUsed))
-                            .font(.headline)
-                    }
+                    LineMark(
+                        x: .value("日期", record.date, unit: .day),
+                        y: .value("流量", record.totalBytes)
+                    )
+                    .foregroundStyle(Color.indigo)
+                    .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
 
-                    Spacer()
-
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text("剩余")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(ByteFormat.string(planRemaining))
-                            .font(.headline)
+                    PointMark(
+                        x: .value("日期", record.date, unit: .day),
+                        y: .value("流量", record.totalBytes)
+                    )
+                    .foregroundStyle(Color.indigo)
+                    .symbolSize(22)
+                }
+                .chartYAxis {
+                    AxisMarks(position: .leading) { value in
+                        AxisGridLine().foregroundStyle(.secondary.opacity(0.12))
+                        AxisValueLabel {
+                            if let bytes = value.as(UInt64.self) {
+                                Text(ByteFormat.string(bytes))
+                            }
+                        }
                     }
                 }
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .day)) { value in
+                        AxisValueLabel(format: .dateTime.weekday(.narrow))
+                    }
+                }
+                .frame(height: 190)
             }
         }
-        .netFlowCard(cornerRadius: 20)
+        .netFlowCard(cornerRadius: 22)
     }
 
-    private var connectionCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("网络状态", systemImage: "network")
+    private var networkCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("网络状态")
                 .font(.headline)
 
-            usageRow(
-                title: "当前连接",
+            statusRow(
                 icon: context.connection.isWiFiActive ? "wifi" : "antenna.radiowaves.left.and.right",
-                value: connectionName
+                title: "当前连接",
+                value: connectionName,
+                tint: isConnected ? .green : .secondary
             )
 
-            usageRow(
-                title: "公网 IP",
+            Divider()
+
+            statusRow(
                 icon: "globe",
-                value: context.connection.publicIP ?? "—"
+                title: "公网 IP",
+                value: context.connection.publicIP ?? "—",
+                tint: .blue
             )
 
-            usageRow(
-                title: "VPN",
+            Divider()
+
+            statusRow(
                 icon: context.connection.isVPNActive ? "lock.shield.fill" : "lock.shield",
-                value: context.connection.isVPNActive ? "已连接" : "未连接"
+                title: "VPN",
+                value: context.connection.isVPNActive ? "已连接" : "未连接",
+                tint: context.connection.isVPNActive ? .green : .secondary
             )
         }
+        .netFlowCard(cornerRadius: 22)
+    }
+
+    private func metricTile(
+        title: String,
+        value: String,
+        subtitle: String,
+        icon: String,
+        tint: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 30, height: 30)
+                .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+            Text(value)
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.64)
+                .contentTransition(.numericText())
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 128, alignment: .leading)
         .netFlowCard(cornerRadius: 20)
     }
 
-    private func liveMetric(title: String, value: String, icon: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
+    private func speedMetric(
+        title: String,
+        value: String,
+        icon: String,
+        tint: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
             Label(title, systemImage: icon)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(tint)
+
             Text(value)
-                .font(.system(.title3, design: .rounded, weight: .bold))
+                .font(.system(size: 24, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.65)
+                .minimumScaleFactor(0.6)
+                .contentTransition(.numericText())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func valueMetric(_ title: String, _ value: String, _ icon: String) -> some View {
-        HStack(spacing: 8) {
+    private func statusRow(
+        icon: String,
+        title: String,
+        value: String,
+        tint: Color
+    ) -> some View {
+        HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(value)
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
 
-    private func usageRow(title: String, icon: String, value: String) -> some View {
-        HStack(spacing: 9) {
-            Image(systemName: icon)
-                .frame(width: 22)
-                .foregroundStyle(.secondary)
             Text(title)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
+
             Spacer()
+
             Text(value)
-                .fontWeight(.semibold)
-                .monospacedDigit()
+                .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.62)
+                .textSelection(.enabled)
         }
-        .font(.subheadline)
+    }
+
+    private var isConnected: Bool {
+        context.connection.isWiFiActive || context.connection.isCellularActive
     }
 
     private var connectionName: String {
         if context.connection.isWiFiActive {
-            if let ssid = context.connection.wifiSSID, !ssid.isEmpty {
-                return "Wi‑Fi · \(ssid)"
-            }
             return "Wi‑Fi"
         }
         if context.connection.isCellularActive {
@@ -353,6 +475,7 @@ struct OverviewView: View {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
+
         await store.refresh()
         await store.refreshContext()
     }
