@@ -56,6 +56,22 @@ final class UsageTrackerTests: XCTestCase {
         XCTAssertEqual(result.rate, .zero)
     }
 
+    func testClockRollbackKeepsUsageButSuppressesLiveRate() {
+        let reader = StubReader([
+            snapshot(100, wifi: 100, cellular: 300),
+            snapshot(90, wifi: 160, cellular: 500)
+        ])
+        let tracker = UsageTracker(reader: reader)
+
+        let first = tracker.sample(previous: .zero)
+        let result = tracker.sample(previous: first.snapshot)
+
+        XCTAssertTrue(result.delta.isValid)
+        XCTAssertEqual(result.delta.wifiReceived, 60)
+        XCTAssertEqual(result.delta.cellularReceived, 200)
+        XCTAssertEqual(result.rate, .zero)
+    }
+
     func testCounterResetInvalidatesSample() {
         let reader = StubReader([
             snapshot(100, wifi: 100, cellular: 300),
