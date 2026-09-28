@@ -6,6 +6,8 @@ on:
     paths:
       - ".github/workflows/build-widget-ipa.yml"
       - "NetFlow/Views/Components/AppChrome.swift"
+      - "NetFlow/Views/Overview/OverviewView.swift"
+      - "NetFlow/Views/History/HistoryView.swift"
   workflow_dispatch:
 
 permissions:
@@ -214,7 +216,17 @@ jobs:
                   let total = cellular &+ wifi
                   let remaining = plan.isUnlimited ? 0 : plan.remainingBytes(records: records, at: now)
 
+                  let calendar = Calendar.current
+                  let monthStart = calendar.date(
+                      from: calendar.dateComponents([.year, .month], from: now)
+                  ) ?? now
+                  let monthEnd = calendar.date(byAdding: .month, value: 1, to: monthStart) ?? now
+                  let monthTotal = records
+                      .filter { $0.date >= monthStart && $0.date < monthEnd }
+                      .reduce(UInt64(0)) { $0 &+ $1.totalBytes }
+
                   d.set(Double(total), forKey: "widget.today.total")
+                  d.set(Double(monthTotal), forKey: "widget.month.total")
                   d.set(Double(cellular), forKey: "widget.today.cellular")
                   d.set(Double(wifi), forKey: "widget.today.wifi")
                   d.set(Double(remaining), forKey: "widget.plan.remaining")
@@ -288,6 +300,7 @@ jobs:
               var total: UInt64 = 0
               var cellular: UInt64 = 0
               var wifi: UInt64 = 0
+              var monthTotal: UInt64 = 0
               var remaining: UInt64 = 0
               var unlimited = false
               var down: Double = 0
@@ -306,6 +319,7 @@ jobs:
                       total: bytes("widget.today.total"),
                       cellular: bytes("widget.today.cellular"),
                       wifi: bytes("widget.today.wifi"),
+                      monthTotal: bytes("widget.month.total"),
                       remaining: bytes("widget.plan.remaining"),
                       unlimited: d.bool(forKey: "widget.plan.unlimited"),
                       down: d.double(forKey: "widget.rate.down"),
@@ -326,6 +340,7 @@ jobs:
                       total: 3_260_000_000,
                       cellular: 1_820_000_000,
                       wifi: 1_440_000_000,
+                      monthTotal: 18_600_000_000,
                       remaining: 18_400_000_000,
                       down: 2_400_000,
                       up: 320_000,
@@ -406,8 +421,13 @@ jobs:
                       }
                       Divider()
                       VStack(alignment: .leading, spacing: 8) {
-                          Text(entry.snapshot.unlimited ? "套餐：不限量" : "剩余 " + Fmt.bytes(entry.snapshot.remaining))
+                          Text("本月流量")
                               .font(.caption.weight(.semibold))
+                              .foregroundStyle(.secondary)
+                          Text(Fmt.bytes(entry.snapshot.monthTotal))
+                              .font(.system(.title3, design: .rounded, weight: .bold))
+                              .lineLimit(1)
+                              .minimumScaleFactor(0.7)
                           Label(Fmt.rate(entry.snapshot.down), systemImage: "arrow.down.circle.fill").font(.caption)
                           Label(Fmt.rate(entry.snapshot.up), systemImage: "arrow.up.circle.fill").font(.caption)
                           Spacer(minLength: 0)
