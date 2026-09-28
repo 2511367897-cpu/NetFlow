@@ -62,19 +62,17 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>4.2.2</string>
+	<string>4.2.3</string>
 	<key>CFBundleVersion</key>
-	<string>31</string>
+	<string>32</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>NetFlow reads local network details to display connection information.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>NetFlow uses your current location to display local weather for your area.</string>
 	<key>NetFlowBuildDate</key>
-	<string>22/09/2026</string>
+	<string>28/09/2026</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
