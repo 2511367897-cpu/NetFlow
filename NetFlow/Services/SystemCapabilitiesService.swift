@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import CoreLocation
 import UserNotifications
+import ActivityKit
 
 @MainActor
 final class SystemCapabilitiesService: ObservableObject {
@@ -43,7 +44,19 @@ final class SystemCapabilitiesService: ObservableObject {
         let publicIP: CapabilityState = context.connection.publicIP == nil ? .limited : .available
         let vpn: CapabilityState = context.connection.isVPNActive ? .available : .limited
 
-        // Widget and Live Activity support requires embedded extension/entitlements at signing time.
+        let liveActivities: CapabilityState = {
+            guard Bundle.main.object(forInfoDictionaryKey: "NSSupportsLiveActivities") as? Bool == true else {
+                return .unavailable
+            }
+
+            if #available(iOS 16.2, *) {
+                return ActivityAuthorizationInfo().areActivitiesEnabled ? .available : .limited
+            }
+
+            return .unavailable
+        }()
+
+        // Widget support requires an embedded extension at signing time.
         // This build reports the actual packaged capability instead of assuming it from installer names.
         let hasWidgetExtension = Bundle.main.builtInPlugInsURL.flatMap {
             try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)
@@ -59,7 +72,7 @@ final class SystemCapabilitiesService: ObservableObject {
             CapabilityItem(id: "public_ip", titleKey: "cap_public_ip", detailKey: "cap_public_ip_detail", systemImage: "network", state: publicIP),
             CapabilityItem(id: "vpn", titleKey: "cap_vpn", detailKey: "cap_vpn_detail", systemImage: "lock.shield", state: vpn),
             CapabilityItem(id: "widgets", titleKey: "cap_widgets", detailKey: "cap_widgets_detail", systemImage: "square.grid.2x2", state: hasWidgetExtension ? .available : .unavailable),
-            CapabilityItem(id: "live_activities", titleKey: "cap_live_activities", detailKey: "cap_live_activities_detail", systemImage: "waveform.path.ecg.rectangle", state: .unavailable)
+            CapabilityItem(id: "live_activities", titleKey: "cap_live_activities", detailKey: "cap_live_activities_detail", systemImage: "waveform.path.ecg.rectangle", state: liveActivities)
         ]
 
         // A capability-oriented label is more reliable than guessing LiveContainer/TrollStore from private paths.
