@@ -5,6 +5,7 @@ struct PersistencePayload: Codable {
     var plan: DataPlan
     var records: [DailyUsageRecord]
     var alerts: [UsageAlertEvent]
+    var networkSnapshot: NetworkSnapshot? = nil
 }
 
 struct PersistenceService {
@@ -29,8 +30,20 @@ struct PersistenceService {
         return PersistencePayload(settings: AppSettings(), plan: DataPlan(), records: [], alerts: [])
     }
 
-    func save(settings: AppSettings, plan: DataPlan, records: [DailyUsageRecord], alerts: [UsageAlertEvent]) {
-        let payload = PersistencePayload(settings: settings, plan: plan, records: records, alerts: alerts)
+    func save(
+        settings: AppSettings,
+        plan: DataPlan,
+        records: [DailyUsageRecord],
+        alerts: [UsageAlertEvent],
+        networkSnapshot: NetworkSnapshot? = nil
+    ) {
+        let payload = PersistencePayload(
+            settings: settings,
+            plan: plan,
+            records: records,
+            alerts: alerts,
+            networkSnapshot: networkSnapshot
+        )
         guard let data = try? JSONEncoder.pretty.encode(payload) else { return }
         try? data.write(to: url, options: .atomic)
     }
