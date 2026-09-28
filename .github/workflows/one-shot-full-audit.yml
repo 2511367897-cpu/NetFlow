@@ -48,11 +48,10 @@ jobs:
                 -project NetFlow.xcodeproj \
                 -scheme NetFlow \
                 -configuration Debug \
+                -sdk iphonesimulator \
                 -destination "platform=iOS Simulator,id=$DEVICE_UDID" \
-                CODE_SIGN_ENTITLEMENTS="" \
-                CODE_SIGN_IDENTITY="-" \
-                AD_HOC_CODE_SIGNING_ALLOWED=YES \
-                DEVELOPMENT_TEAM="" \
+                CODE_SIGNING_ALLOWED=NO \
+                CODE_SIGNING_REQUIRED=NO \
                 test >/tmp/xctest.log 2>&1
               TEST_STATUS=$?
             else
