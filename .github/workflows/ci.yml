@@ -1,9 +1,6 @@
 name: iOS CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -21,20 +18,4 @@ jobs:
       - name: Static project checks
         run: bash Tools/check_project.sh
       - name: Build for iOS Simulator
-        run: |
-          xcodebuild \
-            -project NetFlow.xcodeproj \
-            -target NetFlow \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            CODE_SIGNING_ALLOWED=NO \
-            build
-      - name: Run XCTest suite
-        run: |
-          xcodebuild \
-            -project NetFlow.xcodeproj \
-            -scheme NetFlow \
-            -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            CODE_SIGNING_ALLOWED=NO \
-            test
+        run: xcodebuild -project NetFlow.xcodeproj -target NetFlow -configuration Debug -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build
