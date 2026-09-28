@@ -31,8 +31,8 @@ targets:
         SWIFT_VERSION: 5.0
         SWIFT_STRICT_CONCURRENCY: minimal
         CODE_SIGN_ENTITLEMENTS: NetFlow/NetFlow.entitlements
-        MARKETING_VERSION: 4.2.7
-        CURRENT_PROJECT_VERSION: 36
+        MARKETING_VERSION: 4.2.8
+        CURRENT_PROJECT_VERSION: 37
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
@@ -47,7 +47,6 @@ targets:
         excludes:
           - Info.plist
           - NetFlowWidget.entitlements
-      - path: Shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.duyhoang.netflow.widget
