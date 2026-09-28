@@ -42,12 +42,12 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/NetFlow.app Payload/
-          /usr/bin/zip -qry NetFlow-4.2.12-build41-unsigned.ipa Payload
-          ls -lh NetFlow-4.2.12-build41-unsigned.ipa
+          /usr/bin/zip -qry NetFlow-4.2.13-build42-unsigned.ipa Payload
+          ls -lh NetFlow-4.2.13-build42-unsigned.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NetFlow-4.2.12-build41-unsigned
-          path: NetFlow-4.2.12-build41-unsigned.ipa
+          name: NetFlow-4.2.13-build42-unsigned
+          path: NetFlow-4.2.13-build42-unsigned.ipa
           if-no-files-found: error
