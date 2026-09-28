@@ -693,12 +693,21 @@ private struct NetFlowWidgetView: View {
 
     private var accessoryRectangular: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 本月 " + trafficText(entry.snapshot.monthTotal))
-                .font(.headline)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            if entry.snapshot.isPreview {
+                Text("NetFlow · 等待采样")
+                    .font(.headline)
+                Text("添加后开始统计")
+                    .font(.caption2)
+            } else {
+                Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 本月 " + trafficText(entry.snapshot.monthTotal))
+                    .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
 
-            if entry.snapshot.planUnlimited {
+            if entry.snapshot.isPreview {
+                EmptyView()
+            } else if entry.snapshot.planUnlimited {
                 Text("累计 " + trafficText(entry.snapshot.allTimeTotal) + " · 不限量")
                     .font(.caption2)
             } else {
@@ -709,7 +718,9 @@ private struct NetFlowWidgetView: View {
     }
 
     private var accessoryInline: some View {
-        if entry.snapshot.planUnlimited {
+        if entry.snapshot.isPreview {
+            Text("NetFlow · 等待采样")
+        } else if entry.snapshot.planUnlimited {
             Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 不限量")
         } else {
             Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 套餐 " + String(planPercent) + "%")
