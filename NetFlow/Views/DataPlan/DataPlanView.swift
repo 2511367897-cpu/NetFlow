@@ -289,8 +289,10 @@ struct DataPlanView: View {
         let originalCount = store.plan.alertThresholds.count
 
         store.plan.alertThresholds = store.plan.alertThresholds.filter { threshold in
-            let roundedValue = Int64(threshold.value.rounded())
-            let key = "\(threshold.kind.rawValue):\(roundedValue)"
+            let normalizedValue = threshold.value.isFinite
+                ? threshold.value.rounded()
+                : 0
+            let key = "\(threshold.kind.rawValue):\(normalizedValue)"
             return seen.insert(key).inserted
         }
 
@@ -306,8 +308,11 @@ struct DataPlanView: View {
 
     private func saveCapacityEditor() {
         store.plan.capacityDisplayUnitRaw = capacityUnit.rawValue
-        let bytes = max(capacityValue, 0) * capacityUnit.multiplier
-        store.plan.capacityBytes = UInt64(min(bytes, Double(UInt64.max)))
+        let rawBytes = capacityValue.isFinite
+            ? max(capacityValue, 0) * capacityUnit.multiplier
+            : 0
+        let bytes = min(max(rawBytes, 0), Double(UInt64.max))
+        store.plan.capacityBytes = UInt64(bytes)
         store.save()
     }
 }
@@ -415,7 +420,10 @@ private struct AlertThresholdEditor: View {
                         case .percentUsed:
                             updated.value = min(max(value, 1), 100)
                         case .remainingBytes:
-                            updated.value = max(value, 0) * remainingUnit.multiplier
+                            let rawBytes = value.isFinite
+                                ? max(value, 0) * remainingUnit.multiplier
+                                : 0
+                            updated.value = min(max(rawBytes, 0), Double(UInt64.max))
                         }
 
                         onSave(updated)
@@ -427,7 +435,10 @@ private struct AlertThresholdEditor: View {
     }
 
     private var formattedRemainingValue: String {
-        let bytes = max(value, 0) * remainingUnit.multiplier
-        return ByteFormat.string(UInt64(min(bytes, Double(UInt64.max))))
+        let rawBytes = value.isFinite
+            ? max(value, 0) * remainingUnit.multiplier
+            : 0
+        let bytes = min(max(rawBytes, 0), Double(UInt64.max))
+        return ByteFormat.string(UInt64(bytes))
     }
 }
