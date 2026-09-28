@@ -27,11 +27,12 @@ struct AppSettings: Codable, Hashable {
 }
 
 enum AppLanguage: String, Codable, CaseIterable, Identifiable {
-    case system, vietnamese, english
+    case system, simplifiedChinese, vietnamese, english
     var id: String { rawValue }
     var locale: Locale {
         switch self {
         case .system: return .current
+        case .simplifiedChinese: return Locale(identifier: "zh-Hans")
         case .vietnamese: return Locale(identifier: "vi")
         case .english: return Locale(identifier: "en")
         }
