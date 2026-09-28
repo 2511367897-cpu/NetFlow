@@ -28,7 +28,10 @@ final class AppStore: ObservableObject {
         plan = loaded.plan
         dailyRecords = loaded.records
         alerts = loaded.alerts
-        if let cachedSnapshot = NetworkSnapshotCache.load() {
+        if let persistedSnapshot = loaded.networkSnapshot {
+            liveSnapshot = persistedSnapshot
+        } else if let cachedSnapshot = NetworkSnapshotCache.load() {
+            // Migration fallback for builds that stored the baseline separately.
             liveSnapshot = cachedSnapshot
         }
         networkContext.setLocale(settings.appLanguage.locale)
@@ -262,8 +265,15 @@ final class AppStore: ObservableObject {
     func save(forcePersistence: Bool = true) {
         let now = Date()
         if forcePersistence || now.timeIntervalSince(lastDiskSaveAt) >= diskSaveInterval {
-            persistence.save(settings: settings, plan: plan, records: dailyRecords, alerts: alerts)
+            persistence.save(
+                settings: settings,
+                plan: plan,
+                records: dailyRecords,
+                alerts: alerts,
+                networkSnapshot: liveSnapshot.timestamp == .distantPast ? nil : liveSnapshot
+            )
 
+            // Keep the legacy cache in sync during migration; the JSON payload is authoritative.
             if liveSnapshot.timestamp != .distantPast {
                 NetworkSnapshotCache.save(liveSnapshot)
             }
