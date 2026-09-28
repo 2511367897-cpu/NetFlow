@@ -475,15 +475,16 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 40;
+				CURRENT_PROJECT_VERSION = 41;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlow/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = NetFlow/NetFlow.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.2.11;
+				MARKETING_VERSION = 4.2.12;
 				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow;
 				PRODUCT_NAME = NetFlow;
 				SDKROOT = iphoneos;
@@ -578,16 +579,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CURRENT_PROJECT_VERSION = 40;
+				CURRENT_PROJECT_VERSION = 41;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlowWidget/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = NetFlowWidget/NetFlowWidget.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.2.11;
+				MARKETING_VERSION = 4.2.12;
 				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow.widget;
 				PRODUCT_NAME = NetFlowWidget;
 				SDKROOT = iphoneos;
@@ -602,16 +604,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CURRENT_PROJECT_VERSION = 40;
+				CURRENT_PROJECT_VERSION = 41;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlowWidget/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = NetFlowWidget/NetFlowWidget.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.2.11;
+				MARKETING_VERSION = 4.2.12;
 				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow.widget;
 				PRODUCT_NAME = NetFlowWidget;
 				SDKROOT = iphoneos;
@@ -627,15 +630,16 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 40;
+				CURRENT_PROJECT_VERSION = 41;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlow/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = NetFlow/NetFlow.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.2.11;
+				MARKETING_VERSION = 4.2.12;
 				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow;
 				PRODUCT_NAME = NetFlow;
 				SDKROOT = iphoneos;
