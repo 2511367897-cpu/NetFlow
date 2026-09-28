@@ -1,0 +1,56 @@
+name: One Shot 4.2.6 Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/one-shot-426.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build and package
+        run: |
+          set -euo pipefail
+          rm -rf DerivedData Payload
+          xcodebuild \
+            -project NetFlow.xcodeproj \
+            -scheme NetFlow \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$PWD/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+          APP="$PWD/DerivedData/Build/Products/Release-iphoneos/NetFlow.app"
+          WIDGET="$APP/PlugIns/NetFlowWidget.appex"
+
+          test -d "$APP"
+          test -d "$WIDGET"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")" = "4.2.6"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")" = "35"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist")" = "true"
+          grep -q 'ActivityAuthorizationInfo' NetFlow/Services/SystemCapabilitiesService.swift
+          grep -q '添加后显示真实流量' NetFlowWidget/NetFlowWidget.swift
+
+          mkdir -p Payload
+          cp -R "$APP" Payload/NetFlow.app
+          zip -qry NetFlow_4.2.6_build35_CN_Final_unsigned.ipa Payload
+          shasum -a 256 NetFlow_4.2.6_build35_CN_Final_unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetFlow-4.2.6-Final
+          path: NetFlow_4.2.6_build35_CN_Final_unsigned.ipa
+          retention-days: 7
