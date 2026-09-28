@@ -1,5 +1,5 @@
 name: One Shot Full Audit 4.2.7
-# final retry with simulator ad-hoc signing
+# final audited source snapshot
 
 on:
   push:
