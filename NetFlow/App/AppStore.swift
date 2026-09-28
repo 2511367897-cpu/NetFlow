@@ -1,7 +1,6 @@
 import Foundation
 import SwiftUI
 import UserNotifications
-import WidgetKit
 
 @MainActor
 final class AppStore: ObservableObject {
@@ -273,9 +272,8 @@ final class AppStore: ObservableObject {
 
             if didPersist {
                 lastDiskSaveAt = now
-                // The atomic App Group JSON is the single source of truth for both app and widget.
+                // The atomic JSON now owns the baseline. Remove the old migration cache.
                 NetworkSnapshotCache.clear()
-                WidgetCenter.shared.reloadAllTimelines()
             }
         }
 
