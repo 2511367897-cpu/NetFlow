@@ -1,3 +1,12 @@
+## 4.2.13 (42)
+
+- Removed the App Group requirement for enterprise/resigned installations.
+- Kept exactly one NetFlow widget implementation.
+- Widget traffic counters are fully independent inside the widget extension.
+- Replaced repeated +/- plan controls with direct numeric widget configuration.
+- Long-press the widget and choose Edit Widget to type plan capacity and reset day directly.
+- App and widget data are intentionally separate in this compatibility build.
+
 ## 4.2.12 (41)\n\n- Replaced multiple/legacy widget implementations with one NetFlow widget.\n- App and widget now use the same App Group data file as the single source of truth.\n- App requests WidgetKit reloads after persisted usage or plan changes.\n- Removed the widget-only traffic counters and widget-only plan settings.\n- Widget now shows today, month, lifetime, plan used/remaining, and percentage from app data.\n- Removed obsolete .widget_patch files.\n\n# Changelog
 
 All notable changes to NetFlow are documented here.
