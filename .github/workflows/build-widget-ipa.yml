@@ -8,6 +8,7 @@ on:
       - "NetFlow/Views/Components/AppChrome.swift"
       - "NetFlow/Views/Overview/OverviewView.swift"
       - "NetFlow/Views/History/HistoryView.swift"
+      - "NetFlow/Views/DataPlan/DataPlanView.swift"
   workflow_dispatch:
 
 permissions:
