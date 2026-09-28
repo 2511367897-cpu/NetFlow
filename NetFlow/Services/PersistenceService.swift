@@ -30,13 +30,14 @@ struct PersistenceService {
         return PersistencePayload(settings: AppSettings(), plan: DataPlan(), records: [], alerts: [])
     }
 
+    @discardableResult
     func save(
         settings: AppSettings,
         plan: DataPlan,
         records: [DailyUsageRecord],
         alerts: [UsageAlertEvent],
         networkSnapshot: NetworkSnapshot? = nil
-    ) {
+    ) -> Bool {
         let payload = PersistencePayload(
             settings: settings,
             plan: plan,
@@ -44,8 +45,17 @@ struct PersistenceService {
             alerts: alerts,
             networkSnapshot: networkSnapshot
         )
-        guard let data = try? JSONEncoder.pretty.encode(payload) else { return }
-        try? data.write(to: url, options: .atomic)
+
+        guard let data = try? JSONEncoder.pretty.encode(payload) else {
+            return false
+        }
+
+        do {
+            try data.write(to: url, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
     }
 
     func makeBackup(settings: AppSettings, plan: DataPlan, records: [DailyUsageRecord], alerts: [UsageAlertEvent]) throws -> URL {
