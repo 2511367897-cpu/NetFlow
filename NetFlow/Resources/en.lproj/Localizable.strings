@@ -107,9 +107,7 @@
 "cap_vpn_detail" = "Detects tunnel interfaces and connection state when iOS exposes them.";
 "cap_widgets" = "Home Screen widgets";
 "cap_widgets_detail" = "Available only when the IPA contains a correctly signed Widget Extension.";
-"cap_live_activities" = "Live Activities";
-"cap_live_activities_detail" = "Requires ActivityKit, Info.plist configuration, and suitable signing.";
-"capability_signing_note" = "One IPA can adapt to capabilities that actually work, but it cannot create new entitlements after signing. TrollStore or suitable certificates may preserve more capabilities than LiveContainer.";
+"capability_signing_note" = "The widget reads interface counters independently. iOS schedules refreshes and does not guarantee a five-minute interval.";
 
 "notification_usage_title" = "Data usage alert";
 
