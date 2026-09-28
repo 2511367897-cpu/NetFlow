@@ -1,7 +1,6 @@
 import Foundation
 import UIKit
 import UserNotifications
-import ActivityKit
 
 @MainActor
 final class SystemCapabilitiesService: ObservableObject {
@@ -37,18 +36,6 @@ final class SystemCapabilitiesService: ObservableObject {
         let publicIP: CapabilityState = context.connection.publicIP == nil ? .limited : .available
         let vpn: CapabilityState = .available
 
-        let liveActivities: CapabilityState = {
-            guard Bundle.main.object(forInfoDictionaryKey: "NSSupportsLiveActivities") as? Bool == true else {
-                return .unavailable
-            }
-
-            if #available(iOS 16.2, *) {
-                return ActivityAuthorizationInfo().areActivitiesEnabled ? .available : .limited
-            }
-
-            return .unavailable
-        }()
-
         // Widget support requires an embedded extension at signing time.
         // This build reports the actual packaged capability instead of assuming it from installer names.
         let hasWidgetExtension = Bundle.main.builtInPlugInsURL.flatMap {
@@ -68,15 +55,14 @@ final class SystemCapabilitiesService: ObservableObject {
             CapabilityItem(id: "ssid", titleKey: "cap_ssid", detailKey: "cap_ssid_detail", systemImage: "wifi", state: wifiName),
             CapabilityItem(id: "public_ip", titleKey: "cap_public_ip", detailKey: "cap_public_ip_detail", systemImage: "network", state: publicIP),
             CapabilityItem(id: "vpn", titleKey: "cap_vpn", detailKey: "cap_vpn_detail", systemImage: "lock.shield", state: vpn),
-            CapabilityItem(id: "widgets", titleKey: "cap_widgets", detailKey: "cap_widgets_detail", systemImage: "square.grid.2x2", state: widgetState),
-            CapabilityItem(id: "live_activities", titleKey: "cap_live_activities", detailKey: "cap_live_activities_detail", systemImage: "waveform.path.ecg.rectangle", state: liveActivities)
+            CapabilityItem(id: "widgets", titleKey: "cap_widgets", detailKey: "cap_widgets_detail", systemImage: "square.grid.2x2", state: widgetState)
         ]
 
         // A capability-oriented label is more reliable than guessing LiveContainer/TrollStore from private paths.
         let enhancedCount = items.filter { $0.state == .available }.count
         let environmentTitle: String
         let environmentDetail: String
-        if widgetState == .available && liveActivities == .available && notifications == .available {
+        if widgetState == .available && notifications == .available {
             environmentTitle = "environment_full"
             environmentDetail = "environment_full_detail"
         } else if enhancedCount >= 6 {
