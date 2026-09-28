@@ -84,12 +84,17 @@ final class NetworkContextService: NSObject, ObservableObject {
         locationManager.distanceFilter = kCLDistanceFilterNone
 
         pathMonitor.pathUpdateHandler = { [weak self] path in
-            Task { @MainActor in
-                guard let self else { return }
-                self.connection.isWiFiActive = path.status == .satisfied && path.usesInterfaceType(.wifi)
-                self.connection.isCellularActive = path.status == .satisfied && path.usesInterfaceType(.cellular)
-                self.pathUsesOtherInterface = path.status == .satisfied && path.usesInterfaceType(.other)
-                self.scheduleFastNetworkRefresh()
+            guard let service = self else { return }
+
+            let wifiActive = path.status == .satisfied && path.usesInterfaceType(.wifi)
+            let cellularActive = path.status == .satisfied && path.usesInterfaceType(.cellular)
+            let otherActive = path.status == .satisfied && path.usesInterfaceType(.other)
+
+            Task { @MainActor [service] in
+                service.connection.isWiFiActive = wifiActive
+                service.connection.isCellularActive = cellularActive
+                service.pathUsesOtherInterface = otherActive
+                service.scheduleFastNetworkRefresh()
             }
         }
         pathMonitor.start(queue: monitorQueue)
