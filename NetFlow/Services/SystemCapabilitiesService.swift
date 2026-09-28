@@ -22,7 +22,7 @@ final class SystemCapabilitiesService: ObservableObject {
             switch backgroundState {
             case .available:
                 // Ordinary iOS apps cannot continuously sample in the background.
-                // WidgetKit/ActivityKit have their own scheduling rules.
+                // WidgetKit has its own scheduling rules.
                 return .limited
             case .denied, .restricted:
                 return .unavailable
@@ -42,10 +42,7 @@ final class SystemCapabilitiesService: ObservableObject {
             try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)
         }?.contains(where: { $0.pathExtension == "appex" && $0.lastPathComponent.localizedCaseInsensitiveContains("widget") }) == true
 
-        let widgetState: CapabilityState = {
-            guard hasWidgetExtension else { return .unavailable }
-            return NetFlowWidgetBridge.isSharedContainerAvailable ? .available : .limited
-        }()
+        let widgetState: CapabilityState = hasWidgetExtension ? .available : .unavailable
 
         var items = [
             CapabilityItem(id: "usage", titleKey: "cap_usage", detailKey: "cap_usage_detail", systemImage: "chart.xyaxis.line", state: .available),
