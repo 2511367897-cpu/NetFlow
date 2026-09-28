@@ -168,21 +168,13 @@ struct DataPlanView: View {
                     }
 
                     Button {
-                        capacityFieldFocused = false
-                        let threshold = AlertThreshold(kind: .percentUsed, value: 90)
-                        store.plan.alertThresholds.append(threshold)
-                        store.save()
-                        editingThreshold = threshold
+                        addOrEditAlert(kind: .percentUsed, value: 90)
                     } label: {
                         Label("添加百分比提醒", systemImage: "plus.circle")
                     }
 
                     Button {
-                        capacityFieldFocused = false
-                        let threshold = AlertThreshold(kind: .remainingBytes, value: 1_000_000_000)
-                        store.plan.alertThresholds.append(threshold)
-                        store.save()
-                        editingThreshold = threshold
+                        addOrEditAlert(kind: .remainingBytes, value: 1_000_000_000)
                     } label: {
                         Label("添加剩余流量提醒", systemImage: "plus.circle")
                     }
@@ -214,6 +206,7 @@ struct DataPlanView: View {
         }
         .onAppear {
             loadCapacityEditor()
+            deduplicateAlerts()
         }
         .onChange(of: capacityValue) { _ in saveCapacityEditor() }
         .onChange(of: capacityUnit) { _ in saveCapacityEditor() }
@@ -242,22 +235,67 @@ struct DataPlanView: View {
         }
     }
 
+    private func addOrEditAlert(kind: AlertThreshold.Kind, value: Double) {
+        capacityFieldFocused = false
+
+        if let existing = store.plan.alertThresholds.first(where: {
+            $0.kind == kind && abs($0.value - value) < 0.5
+        }) {
+            editingThreshold = existing
+            return
+        }
+
+        let threshold = AlertThreshold(kind: kind, value: value)
+        store.plan.alertThresholds.append(threshold)
+        store.save()
+        editingThreshold = threshold
+    }
+
     private func updateAlert(_ updated: AlertThreshold) {
         guard let index = store.plan.alertThresholds.firstIndex(where: { $0.id == updated.id }) else {
             return
         }
 
         store.plan.alertThresholds[index] = updated
+
+        // 编辑过阈值后允许它在当前套餐周期内重新触发。
+        let idText = updated.id.uuidString
+        store.plan.triggeredAlertIDs = Set(
+            store.plan.triggeredAlertIDs.filter { !$0.contains(idText) }
+        )
+
+        deduplicateAlerts()
         store.save()
         editingThreshold = nil
     }
 
     private func deleteAlert(id: UUID) {
         store.plan.alertThresholds.removeAll { $0.id == id }
+
+        let idText = id.uuidString
+        store.plan.triggeredAlertIDs = Set(
+            store.plan.triggeredAlertIDs.filter { !$0.contains(idText) }
+        )
+
         store.save()
 
         if editingThreshold?.id == id {
             editingThreshold = nil
+        }
+    }
+
+    private func deduplicateAlerts() {
+        var seen = Set<String>()
+        let originalCount = store.plan.alertThresholds.count
+
+        store.plan.alertThresholds = store.plan.alertThresholds.filter { threshold in
+            let roundedValue = Int64(threshold.value.rounded())
+            let key = "\(threshold.kind.rawValue):\(roundedValue)"
+            return seen.insert(key).inserted
+        }
+
+        if store.plan.alertThresholds.count != originalCount {
+            store.save()
         }
     }
 
