@@ -3,20 +3,94 @@ import SwiftUI
 import AppIntents
 import Darwin
 
-private let widgetKind = "NetFlowIndependentWidgetV4"
+private let netFlowWidgetKind = "NetFlowUsageWidget"
+// A fresh kind avoids migrating the broken AppIntentConfiguration instances.
+private let configuredWidgetKind = "NetFlowPlanWidgetV2"
 
-struct NetFlowWidgetConfiguration: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource = "NetFlow 套餐设置"
-    static var description = IntentDescription("长按小组件 → 编辑小组件，直接输入套餐总量和每月重置日。")
+private enum WidgetPlanSettings {
+    private static let defaults = UserDefaults.standard
+    private static let capacityKey = "self.plan.capacityGB"
+    private static let resetDayKey = "self.plan.resetDay"
+    private static let unlimitedKey = "self.plan.unlimited"
+    private static let configuredKey = "self.plan.configured"
+    private static let editingKey = "self.plan.editing"
 
-    @Parameter(title: "套餐总量（GB）", default: 30.0)
-    var capacityGB: Double
+    static var capacityGB: Int { max(1, min(100_000, defaults.object(forKey: capacityKey) as? Int ?? 30)) }
+    static var resetDay: Int { max(1, min(28, defaults.object(forKey: resetDayKey) as? Int ?? 1)) }
+    static var unlimited: Bool { defaults.bool(forKey: unlimitedKey) }
+    static var configured: Bool { defaults.bool(forKey: configuredKey) }
+    static var editing: Bool { !configured || defaults.bool(forKey: editingKey) }
 
-    @Parameter(title: "每月重置日（1–28）", default: 1)
-    var resetDay: Int
+    static func adjustCapacity(_ delta: Int) {
+        defaults.set(max(1, min(100_000, capacityGB + delta)), forKey: capacityKey)
+        reload()
+    }
 
-    @Parameter(title: "不限量套餐", default: false)
-    var unlimited: Bool
+    static func adjustResetDay(_ delta: Int) {
+        defaults.set(max(1, min(28, resetDay + delta)), forKey: resetDayKey)
+        reload()
+    }
+
+    static func toggleUnlimited() {
+        defaults.set(!unlimited, forKey: unlimitedKey)
+        reload()
+    }
+
+    static func toggleEditing() {
+        if editing {
+            defaults.set(true, forKey: configuredKey)
+            defaults.set(false, forKey: editingKey)
+        } else {
+            defaults.set(true, forKey: editingKey)
+        }
+        reload()
+    }
+
+    private static func reload() {
+        WidgetCenter.shared.reloadTimelines(ofKind: configuredWidgetKind)
+    }
+}
+
+struct AdjustWidgetCapacityIntent: AppIntent {
+    static var title: LocalizedStringResource = "调整套餐总量"
+    static var openAppWhenRun = false
+    @Parameter(title: "增减 GB") var delta: Int
+    init() { self.delta = 0 }
+    init(delta: Int) { self.delta = delta }
+    func perform() async throws -> some IntentResult {
+        WidgetPlanSettings.adjustCapacity(delta)
+        return .result()
+    }
+}
+
+struct AdjustWidgetResetDayIntent: AppIntent {
+    static var title: LocalizedStringResource = "调整重置日"
+    static var openAppWhenRun = false
+    @Parameter(title: "增减天数") var delta: Int
+    init() { self.delta = 0 }
+    init(delta: Int) { self.delta = delta }
+    func perform() async throws -> some IntentResult {
+        WidgetPlanSettings.adjustResetDay(delta)
+        return .result()
+    }
+}
+
+struct ToggleWidgetUnlimitedIntent: AppIntent {
+    static var title: LocalizedStringResource = "切换不限量套餐"
+    static var openAppWhenRun = false
+    func perform() async throws -> some IntentResult {
+        WidgetPlanSettings.toggleUnlimited()
+        return .result()
+    }
+}
+
+struct ToggleWidgetEditingIntent: AppIntent {
+    static var title: LocalizedStringResource = "编辑或保存套餐"
+    static var openAppWhenRun = false
+    func perform() async throws -> some IntentResult {
+        WidgetPlanSettings.toggleEditing()
+        return .result()
+    }
 }
 
 private struct RawCounters {
@@ -83,8 +157,7 @@ private enum RawCounterReader {
             let item = interface.pointee
             let name = String(cString: item.ifa_name)
 
-            if item.ifa_addr?.pointee.sa_family == UInt8(AF_LINK),
-               let rawData = item.ifa_data {
+            if item.ifa_addr?.pointee.sa_family == UInt8(AF_LINK), let rawData = item.ifa_data {
                 let data = rawData.assumingMemoryBound(to: if_data.self).pointee
 
                 if name == "en0" {
@@ -105,16 +178,21 @@ private enum RawCounterReader {
 
 private struct UsageSnapshot {
     var todayTotal: UInt64 = 0
+    var todayCellular: UInt64 = 0
+    var todayWiFi: UInt64 = 0
     var monthTotal: UInt64 = 0
-    var allTimeTotal: UInt64 = 0
     var monthCellular: UInt64 = 0
     var monthWiFi: UInt64 = 0
+    var allTimeTotal: UInt64 = 0
 
     var planCapacity: UInt64 = 0
     var planUsed: UInt64 = 0
     var planRemaining: UInt64 = 0
     var planUnlimited = false
     var resetDay = 1
+    var planConfigured = true
+    var isEditing = false
+    var inlineSettings = true
 
     var down: Double = 0
     var up: Double = 0
@@ -124,18 +202,18 @@ private struct UsageSnapshot {
 
 private enum WidgetTrafficStore {
     private enum Key {
-        static let rawWiFiReceived = "independent.raw.wifi.received"
-        static let rawWiFiSent = "independent.raw.wifi.sent"
-        static let rawCellularReceived = "independent.raw.cellular.received"
-        static let rawCellularSent = "independent.raw.cellular.sent"
-        static let rawTimestamp = "independent.raw.timestamp"
-        static let rawAvailable = "independent.raw.available"
-        static let hasMeasurement = "independent.hasMeasurement"
-        static let allTimeTotal = "independent.alltime.total"
-        static let rateDown = "independent.rate.down"
-        static let rateUp = "independent.rate.up"
-        static let updatedAt = "independent.updatedAt"
-        static let dailyBuckets = "independent.dailyBuckets.v1"
+        static let rawWiFiReceived = "self.raw.wifi.received"
+        static let rawWiFiSent = "self.raw.wifi.sent"
+        static let rawCellularReceived = "self.raw.cellular.received"
+        static let rawCellularSent = "self.raw.cellular.sent"
+        static let rawTimestamp = "self.raw.timestamp"
+        static let rawAvailable = "self.raw.available"
+        static let hasMeasurement = "self.hasMeasurement"
+        static let allTimeTotal = "self.alltime.total"
+        static let rateDown = "self.rate.down"
+        static let rateUp = "self.rate.up"
+        static let updatedAt = "self.updatedAt"
+        static let dailyBuckets = "self.dailyBuckets.v2"
     }
 
     private static let defaults = UserDefaults.standard
@@ -144,38 +222,22 @@ private enum WidgetTrafficStore {
 
     static func forceRefresh() async {
         sampleCurrent(now: Date())
-        try? await Task.sleep(nanoseconds: 800_000_000)
+
+        do {
+            try await Task.sleep(nanoseconds: 800_000_000)
+        } catch {
+            return
+        }
+
         sampleCurrent(now: Date())
     }
 
     private static func sampleCurrent(now: Date) {
         sampleLock.lock()
         defer { sampleLock.unlock() }
-
         if let current = RawCounterReader.read() {
             consume(current: current, now: now)
         }
-    }
-
-    static func sampleAndLoad(
-        planCapacityGB: Double,
-        resetDay: Int,
-        unlimited: Bool,
-        now: Date = Date()
-    ) -> UsageSnapshot {
-        sampleLock.lock()
-        defer { sampleLock.unlock() }
-
-        if let current = RawCounterReader.read() {
-            consume(current: current, now: now)
-        }
-
-        return load(
-            planCapacityGB: planCapacityGB,
-            resetDay: resetDay,
-            unlimited: unlimited,
-            now: now
-        )
     }
 
     private static func consume(current: RawCounters, now: Date) {
@@ -190,8 +252,7 @@ private enum WidgetTrafficStore {
             )
             let previousTimestamp = defaults.double(forKey: Key.rawTimestamp)
 
-            if previousTimestamp > 0,
-               previousTimestamp < currentTimestamp,
+            if previousTimestamp > 0, previousTimestamp < currentTimestamp,
                countersAreValid(current: current, previous: previous) {
                 let delta = TrafficDelta(
                     wifiReceived: current.wifiReceived - previous.wifiReceived,
@@ -199,12 +260,7 @@ private enum WidgetTrafficStore {
                     cellularReceived: current.cellularReceived - previous.cellularReceived,
                     cellularSent: current.cellularSent - previous.cellularSent
                 )
-
-                record(
-                    delta: delta,
-                    from: Date(timeIntervalSince1970: previousTimestamp),
-                    to: now
-                )
+                record(delta: delta, from: Date(timeIntervalSince1970: previousTimestamp), to: now)
                 defaults.set(true, forKey: Key.hasMeasurement)
 
                 let elapsed = currentTimestamp - previousTimestamp
@@ -236,20 +292,34 @@ private enum WidgetTrafficStore {
         defaults.set(currentTimestamp, forKey: Key.updatedAt)
     }
 
+    static func sampleAndLoad(
+        planCapacityGB: Double,
+        resetDay: Int,
+        unlimited: Bool,
+        now: Date = Date()
+    ) -> UsageSnapshot {
+        sampleLock.lock()
+        defer { sampleLock.unlock() }
+        if let current = RawCounterReader.read() {
+            consume(current: current, now: now)
+        }
+        return load(planCapacityGB: planCapacityGB, resetDay: resetDay,
+                    unlimited: unlimited, now: now)
+    }
+
     private static func load(
         planCapacityGB: Double,
         resetDay requestedResetDay: Int,
         unlimited: Bool,
-        now: Date
+        now: Date = Date()
     ) -> UsageSnapshot {
         let buckets = loadBuckets()
-        let today = buckets[key(for: now)] ?? DailyBucket()
+        let todayKey = key(for: now)
+        let today = buckets[todayKey] ?? DailyBucket()
 
         let monthInterval = currentMonthInterval(now)
-        let monthBuckets = buckets.compactMap { bucketKey, bucket -> DailyBucket? in
-            guard let date = date(from: bucketKey), monthInterval.contains(date) else {
-                return nil
-            }
+        let monthBuckets = buckets.compactMap { key, bucket -> DailyBucket? in
+            guard let date = date(from: key), monthInterval.contains(date) else { return nil }
             return bucket
         }
 
@@ -259,13 +329,8 @@ private enum WidgetTrafficStore {
 
         let resetDay = min(max(requestedResetDay, 1), 28)
         let cycleStart = currentCycleStart(now: now, resetDay: resetDay)
-
-        let planUsed = buckets.compactMap { bucketKey, bucket -> UInt64? in
-            guard let date = date(from: bucketKey),
-                  date >= cycleStart,
-                  date <= now else {
-                return nil
-            }
+        let planUsed = buckets.compactMap { key, bucket -> UInt64? in
+            guard let date = date(from: key), date >= cycleStart && date <= now else { return nil }
             return bucket.cellular
         }.reduce(UInt64(0), saturatingAdd)
 
@@ -279,10 +344,12 @@ private enum WidgetTrafficStore {
 
         return UsageSnapshot(
             todayTotal: today.total,
+            todayCellular: today.cellular,
+            todayWiFi: today.wifi,
             monthTotal: monthTotal,
-            allTimeTotal: max(storedBytes(Key.allTimeTotal), monthTotal),
             monthCellular: monthCellular,
             monthWiFi: monthWiFi,
+            allTimeTotal: max(storedBytes(Key.allTimeTotal), monthTotal),
             planCapacity: capacity,
             planUsed: planUsed,
             planRemaining: remaining,
@@ -314,16 +381,11 @@ private enum WidgetTrafficStore {
                 segment = remaining
             } else {
                 let remainingDuration = max(end.timeIntervalSince(cursor), 0.001)
-                let fraction = min(
-                    max(segmentEnd.timeIntervalSince(cursor) / remainingDuration, 0),
-                    1
-                )
+                let fraction = min(max(segmentEnd.timeIntervalSince(cursor) / remainingDuration, 0), 1)
 
                 func portion(_ value: UInt64) -> UInt64 {
                     let scaled = (Double(value) * fraction).rounded()
-                    return scaled >= Double(UInt64.max)
-                        ? value
-                        : UInt64(max(scaled, 0))
+                    return scaled >= Double(UInt64.max) ? value : UInt64(max(scaled, 0))
                 }
 
                 segment = TrafficDelta(
@@ -332,7 +394,6 @@ private enum WidgetTrafficStore {
                     cellularReceived: portion(remaining.cellularReceived),
                     cellularSent: portion(remaining.cellularSent)
                 )
-
                 remaining = TrafficDelta(
                     wifiReceived: remaining.wifiReceived - segment.wifiReceived,
                     wifiSent: remaining.wifiSent - segment.wifiSent,
@@ -343,30 +404,21 @@ private enum WidgetTrafficStore {
 
             let bucketKey = key(for: cursor)
             var bucket = buckets[bucketKey] ?? DailyBucket()
-            bucket.add(
-                total: segment.total,
-                cellular: segment.cellularTotal,
-                wifi: segment.wifiTotal
-            )
+            bucket.add(total: segment.total, cellular: segment.cellularTotal, wifi: segment.wifiTotal)
             buckets[bucketKey] = bucket
             cursor = segmentEnd
         }
 
         let oldAllTime = storedBytes(Key.allTimeTotal)
-        defaults.set(
-            NSNumber(value: saturatingAdd(oldAllTime, delta.total)),
-            forKey: Key.allTimeTotal
-        )
+        defaults.set(NSNumber(value: saturatingAdd(oldAllTime, delta.total)), forKey: Key.allTimeTotal)
 
         prune(&buckets, keepingDays: 400, now: end)
         saveBuckets(buckets)
     }
 
     private static func loadBuckets() -> [String: DailyBucket] {
-        guard
-            let data = defaults.data(forKey: Key.dailyBuckets),
-            let decoded = try? JSONDecoder().decode([String: DailyBucket].self, from: data)
-        else {
+        guard let data = defaults.data(forKey: Key.dailyBuckets),
+              let decoded = try? JSONDecoder().decode([String: DailyBucket].self, from: data) else {
             return [:]
         }
         return decoded
@@ -377,29 +429,18 @@ private enum WidgetTrafficStore {
         defaults.set(data, forKey: Key.dailyBuckets)
     }
 
-    private static func prune(
-        _ buckets: inout [String: DailyBucket],
-        keepingDays: Int,
-        now: Date
-    ) {
-        guard let cutoff = calendar.date(
-            byAdding: .day,
-            value: -keepingDays,
-            to: calendar.startOfDay(for: now)
-        ) else {
+    private static func prune(_ buckets: inout [String: DailyBucket], keepingDays: Int, now: Date) {
+        guard let cutoff = calendar.date(byAdding: .day, value: -keepingDays, to: calendar.startOfDay(for: now)) else {
             return
         }
-
-        buckets = buckets.filter { bucketKey, _ in
-            guard let date = date(from: bucketKey) else { return false }
+        buckets = buckets.filter { key, _ in
+            guard let date = date(from: key) else { return false }
             return date >= cutoff
         }
     }
 
     private static func currentMonthInterval(_ now: Date) -> DateInterval {
-        let start = calendar.date(
-            from: calendar.dateComponents([.year, .month], from: now)
-        ) ?? calendar.startOfDay(for: now)
+        let start = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? calendar.startOfDay(for: now)
         let end = calendar.date(byAdding: .month, value: 1, to: start) ?? now
         return DateInterval(start: start, end: end)
     }
@@ -410,9 +451,7 @@ private enum WidgetTrafficStore {
         let month = components.month ?? 1
 
         func start(year: Int, month: Int) -> Date {
-            calendar.date(
-                from: DateComponents(year: year, month: month, day: resetDay)
-            ) ?? now
+            calendar.date(from: DateComponents(year: year, month: month, day: resetDay)) ?? now
         }
 
         let thisMonth = start(year: year, month: month)
@@ -420,78 +459,48 @@ private enum WidgetTrafficStore {
             return thisMonth
         }
 
-        let previousMonthAnchor = calendar.date(
-            byAdding: .month,
-            value: -1,
-            to: thisMonth
-        ) ?? now
-        let previous = calendar.dateComponents(
-            [.year, .month],
-            from: previousMonthAnchor
-        )
-
-        return start(
-            year: previous.year ?? year,
-            month: previous.month ?? month
-        )
+        let previousMonthAnchor = calendar.date(byAdding: .month, value: -1, to: thisMonth) ?? now
+        let previous = calendar.dateComponents([.year, .month], from: previousMonthAnchor)
+        return start(year: previous.year ?? year, month: previous.month ?? month)
     }
 
     private static func key(for date: Date) -> String {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
-        return String(
-            format: "%04d-%02d-%02d",
-            c.year ?? 0,
-            c.month ?? 0,
-            c.day ?? 0
-        )
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
     private static func date(from key: String) -> Date? {
         let parts = key.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
-
-        return calendar.date(
-            from: DateComponents(
-                year: parts[0],
-                month: parts[1],
-                day: parts[2]
-            )
-        )
+        return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
     }
 
-    private static func countersAreValid(
-        current: RawCounters,
-        previous: RawCounters
-    ) -> Bool {
+    private static func countersAreValid(current: RawCounters, previous: RawCounters) -> Bool {
         current.wifiReceived >= previous.wifiReceived &&
         current.wifiSent >= previous.wifiSent &&
         current.cellularReceived >= previous.cellularReceived &&
         current.cellularSent >= previous.cellularSent
     }
 
-    private static func saturatingAdd(
-        _ lhs: UInt64,
-        _ rhs: UInt64
-    ) -> UInt64 {
+    private static func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
         let (value, overflow) = lhs.addingReportingOverflow(rhs)
         return overflow ? UInt64.max : value
     }
 
     private static func storedBytes(_ key: String) -> UInt64 {
-        defaults.object(forKey: key)
-            .flatMap { $0 as? NSNumber }?
-            .uint64Value ?? 0
+        defaults.object(forKey: key).flatMap { $0 as? NSNumber }?.uint64Value ?? 0
     }
 }
 
-struct RefreshIndependentNetFlowIntent: AppIntent {
+struct RefreshNetFlowIntent: AppIntent {
     static var title: LocalizedStringResource = "刷新流量"
-    static var description = IntentDescription("立即读取一次当前网络流量计数。")
+    static var description = IntentDescription("立即重新读取当前设备的网络流量计数。")
     static var openAppWhenRun = false
 
     func perform() async throws -> some IntentResult {
         await WidgetTrafficStore.forceRefresh()
-        WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
+        WidgetCenter.shared.reloadTimelines(ofKind: netFlowWidgetKind)
+        WidgetCenter.shared.reloadTimelines(ofKind: configuredWidgetKind)
         return .result()
     }
 }
@@ -501,59 +510,53 @@ private struct NetFlowEntry: TimelineEntry {
     let snapshot: UsageSnapshot
 }
 
-private struct Provider: AppIntentTimelineProvider {
+private struct Provider: TimelineProvider {
+    let includesPlan: Bool
+
     func placeholder(in context: Context) -> NetFlowEntry {
         NetFlowEntry(
             date: .now,
             snapshot: UsageSnapshot(
-                todayTotal: 1_260_000_000,
-                monthTotal: 18_400_000_000,
-                allTimeTotal: 65_300_000_000,
-                monthCellular: 12_800_000_000,
-                monthWiFi: 5_600_000_000,
-                planCapacity: 30_000_000_000,
-                planUsed: 12_800_000_000,
-                planRemaining: 17_200_000_000,
+                todayTotal: 0,
+                todayCellular: 0,
+                todayWiFi: 0,
+                monthTotal: 0,
+                monthCellular: 0,
+                monthWiFi: 0,
+                allTimeTotal: 0,
+                planCapacity: 0,
+                planUsed: 0,
+                planRemaining: 0,
                 planUnlimited: false,
                 resetDay: 1,
-                down: 860_000,
-                up: 120_000,
+                planConfigured: includesPlan,
+                down: 0,
+                up: 0,
                 updatedAt: .now,
-                isPreview: false
+                isPreview: true
             )
         )
     }
 
-    func snapshot(
-        for configuration: NetFlowWidgetConfiguration,
-        in context: Context
-    ) async -> NetFlowEntry {
-        context.isPreview
-            ? placeholder(in: context)
-            : makeEntry(configuration: configuration, now: Date())
+    func getSnapshot(in context: Context, completion: @escaping (NetFlowEntry) -> Void) {
+        completion(context.isPreview ? placeholder(in: context) : entry(now: Date()))
     }
 
-    func timeline(
-        for configuration: NetFlowWidgetConfiguration,
-        in context: Context
-    ) async -> Timeline<NetFlowEntry> {
+    func getTimeline(in context: Context, completion: @escaping (Timeline<NetFlowEntry>) -> Void) {
         let now = Date()
-        return Timeline(
-            entries: [makeEntry(configuration: configuration, now: now)],
-            policy: .after(now.addingTimeInterval(5 * 60))
-        )
+        completion(Timeline(entries: [entry(now: now)],
+                            policy: .after(now.addingTimeInterval(5 * 60))))
     }
 
-    private func makeEntry(
-        configuration: NetFlowWidgetConfiguration,
-        now: Date
-    ) -> NetFlowEntry {
-        let snapshot = WidgetTrafficStore.sampleAndLoad(
-            planCapacityGB: configuration.capacityGB,
-            resetDay: configuration.resetDay,
-            unlimited: configuration.unlimited,
+    private func entry(now: Date) -> NetFlowEntry {
+        var snapshot = WidgetTrafficStore.sampleAndLoad(
+            planCapacityGB: includesPlan ? Double(WidgetPlanSettings.capacityGB) : 0,
+            resetDay: includesPlan ? WidgetPlanSettings.resetDay : 1,
+            unlimited: includesPlan ? WidgetPlanSettings.unlimited : true,
             now: now
         )
+        snapshot.planConfigured = includesPlan && WidgetPlanSettings.configured
+        snapshot.isEditing = includesPlan && WidgetPlanSettings.editing
         return NetFlowEntry(date: now, snapshot: snapshot)
     }
 }
@@ -566,9 +569,8 @@ private enum Format {
         )
     }
 
-    static func rate(_ bytesPerSecond: Double) -> String {
-        let bits = max(bytesPerSecond, 0) * 8
-
+    static func rate(_ value: Double) -> String {
+        let bits = max(value, 0) * 8
         if bits >= 1_000_000 {
             return String(format: "%.1f Mbps", bits / 1_000_000)
         }
@@ -587,24 +589,18 @@ private struct NetFlowWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: NetFlowEntry
 
-    private var progress: Double {
+    private var planProgress: Double {
         guard !entry.snapshot.planUnlimited,
-              entry.snapshot.planCapacity > 0 else {
-            return 0
-        }
-
-        return min(
-            max(
-                Double(entry.snapshot.planUsed) /
-                Double(entry.snapshot.planCapacity),
-                0
-            ),
-            1
-        )
+              entry.snapshot.planCapacity > 0 else { return 0 }
+        return min(max(Double(entry.snapshot.planUsed) / Double(entry.snapshot.planCapacity), 0), 1)
     }
 
-    private var percent: Int {
-        Int((progress * 100).rounded())
+    private var planPercent: Int {
+        Int((planProgress * 100).rounded())
+    }
+
+    private func trafficText(_ value: UInt64) -> String {
+        entry.snapshot.isPreview ? "—" : Format.bytes(value)
     }
 
     var body: some View {
@@ -620,28 +616,33 @@ private struct NetFlowWidgetView: View {
                 small
             }
         }
+        .widgetURL(URL(string: "netflow://open"))
     }
 
     private var small: some View {
+        Group {
+            if entry.snapshot.isEditing {
+                smallSettings
+            } else {
+                smallOverview
+            }
+        }
+    }
+
+    private var smallOverview: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Label("NetFlow", systemImage: "waveform.path.ecg")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.indigo)
-
                 Spacer()
-
-                Button(intent: RefreshIndependentNetFlowIntent()) {
-                    Image(systemName: "arrow.clockwise.circle.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.indigo)
-                }
-                .buttonStyle(.plain)
+                refreshButton
+                if entry.snapshot.planConfigured && entry.snapshot.inlineSettings { editButton }
             }
 
-            HStack(spacing: 8) {
-                metric("今日", entry.snapshot.todayTotal)
-                metric("本月", entry.snapshot.monthTotal)
+            HStack(spacing: 10) {
+                compactMetric("今日", entry.snapshot.todayTotal)
+                compactMetric("本月", entry.snapshot.monthTotal)
             }
 
             HStack {
@@ -649,20 +650,20 @@ private struct NetFlowWidgetView: View {
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(value(entry.snapshot.allTimeTotal))
+                Text(trafficText(entry.snapshot.allTimeTotal))
                     .font(.system(size: 10, weight: .semibold))
             }
 
             Divider()
 
             if entry.snapshot.isPreview {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("等待采样")
-                        .font(.caption2.weight(.semibold))
-                    Text("长按 → 编辑小组件，可直接输入套餐")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                }
+                Text(entry.snapshot.planConfigured ? "等待下次采样" : "等待下次采样")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            } else if !entry.snapshot.planConfigured {
+                Text("套餐设置请添加“NetFlow 套餐”小组件")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
             } else if entry.snapshot.planUnlimited {
                 HStack {
                     Text("套餐")
@@ -670,7 +671,7 @@ private struct NetFlowWidgetView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text("不限量")
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 10, weight: .bold))
                 }
             } else {
                 HStack {
@@ -678,20 +679,24 @@ private struct NetFlowWidgetView: View {
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text("\(percent)%")
-                        .font(.system(size: 11, weight: .bold))
+                    Text("\(planPercent)%")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(planProgress >= 0.9 ? .red : .indigo)
                 }
 
-                ProgressView(value: progress)
+                ProgressView(value: planProgress)
+                    .tint(planProgress >= 0.9 ? .red : .indigo)
 
-                Text(
-                    Format.bytes(entry.snapshot.planUsed) +
-                    " / " +
-                    Format.bytes(entry.snapshot.planCapacity)
-                )
-                .font(.system(size: 9, weight: .medium))
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
+                HStack {
+                    Text(Format.bytes(entry.snapshot.planUsed) + " / " + Format.bytes(entry.snapshot.planCapacity))
+                        .font(.system(size: 9, weight: .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                    Spacer()
+                    Text(Format.time(entry.snapshot.updatedAt))
+                        .font(.system(size: 8))
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .padding()
@@ -699,94 +704,85 @@ private struct NetFlowWidgetView: View {
     }
 
     private var medium: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        Group {
+            if entry.snapshot.isEditing {
+                mediumSettings
+            } else if entry.snapshot.planConfigured && !entry.snapshot.inlineSettings {
+                mediumEditableOverview
+            } else {
+                mediumOverview
+            }
+        }
+    }
+
+    private var mediumEditableOverview: some View {
+        VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Label("NetFlow 流量", systemImage: "chart.line.uptrend.xyaxis")
-                    .font(.caption.weight(.bold))
+                Label("NetFlow", systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.indigo)
-
                 Spacer()
-
                 Text("更新 " + Format.time(entry.snapshot.updatedAt))
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
-
-                Button(intent: RefreshIndependentNetFlowIntent()) {
-                    Image(systemName: "arrow.clockwise.circle.fill")
-                        .foregroundStyle(.indigo)
-                }
-                .buttonStyle(.plain)
+                refreshButton
             }
 
             HStack(spacing: 8) {
-                metric("今日", entry.snapshot.todayTotal)
-                metric("本月", entry.snapshot.monthTotal)
-                metric("累计", entry.snapshot.allTimeTotal)
+                mediumMetric("今日", entry.snapshot.todayTotal, "sun.max.fill", .orange)
+                mediumMetric("本月", entry.snapshot.monthTotal, "calendar", .indigo)
+                mediumMetric("累计", entry.snapshot.allTimeTotal, "sum", .cyan)
             }
 
-            Divider()
+            Rectangle()
+                .fill(Color.indigo.opacity(0.12))
+                .frame(height: 1)
 
             if entry.snapshot.isPreview {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("等待下次采样")
-                        .font(.caption.weight(.semibold))
-                    Text("长按小组件 → 编辑小组件 → 直接输入套餐总量")
+                    Text("等待下次采样").font(.system(size: 13, weight: .bold))
+                    Text("长按小组件 → 编辑小组件，输入套餐总量")
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                 }
             } else if entry.snapshot.planUnlimited {
-                HStack {
-                    Text("蜂窝套餐")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("蜂窝套餐").font(.system(size: 9)).foregroundStyle(.secondary)
+                        Text("不限量").font(.system(size: 18, weight: .bold, design: .rounded))
+                    }
                     Spacer()
-                    Text("不限量")
-                        .font(.headline.weight(.bold))
+                    speedPair
                 }
             } else {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("剩余 · 每月 \(entry.snapshot.resetDay) 日重置")
+                        Text("本周期剩余 · 每月 \(entry.snapshot.resetDay) 日重置")
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)
-
                         Text(Format.bytes(entry.snapshot.planRemaining))
                             .font(.system(size: 18, weight: .bold, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
-
-                    Spacer()
-
-                    Text("\(percent)%")
-                        .font(.system(size: 23, weight: .bold, design: .rounded))
+                    Spacer(minLength: 6)
+                    Text("\(planPercent)%")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(planProgress >= 0.9 ? .red : .indigo)
                 }
 
-                ProgressView(value: progress)
+                ProgressView(value: planProgress)
+                    .tint(planProgress >= 0.9 ? .red : .indigo)
 
                 HStack {
-                    Text(
-                        "已用 " +
-                        Format.bytes(entry.snapshot.planUsed) +
-                        " / " +
-                        Format.bytes(entry.snapshot.planCapacity)
-                    )
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-
-                    Spacer()
-
-                    HStack(spacing: 7) {
-                        Label(
-                            Format.rate(entry.snapshot.down),
-                            systemImage: "arrow.down"
-                        )
-                        Label(
-                            Format.rate(entry.snapshot.up),
-                            systemImage: "arrow.up"
-                        )
-                    }
-                    .font(.system(size: 9, weight: .semibold))
+                    Text("已用 " + Format.bytes(entry.snapshot.planUsed)
+                         + " / " + Format.bytes(entry.snapshot.planCapacity))
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Spacer(minLength: 6)
+                    speedPair
                 }
             }
         }
@@ -794,57 +790,278 @@ private struct NetFlowWidgetView: View {
         .widgetBackground()
     }
 
-    private var accessoryRectangular: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(
-                "今日 " + value(entry.snapshot.todayTotal) +
-                " · 本月 " + value(entry.snapshot.monthTotal)
-            )
-            .font(.headline)
-            .lineLimit(1)
-            .minimumScaleFactor(0.65)
+    private var mediumOverview: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Label("NetFlow 流量", systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.indigo)
+                Spacer()
+                Text("更新 " + Format.time(entry.snapshot.updatedAt))
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                refreshButton
+                if entry.snapshot.planConfigured && entry.snapshot.inlineSettings { editButton }
+            }
+
+            HStack(spacing: 8) {
+                mediumMetric("今日", entry.snapshot.todayTotal, "sun.max.fill", .orange)
+                mediumMetric("本月", entry.snapshot.monthTotal, "calendar", .indigo)
+                mediumMetric("累计", entry.snapshot.allTimeTotal, "sum", .cyan)
+            }
+
+            Divider()
 
             if entry.snapshot.isPreview {
-                Text("等待采样")
-                    .font(.caption2)
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("等待下次采样")
+                            .font(.caption.weight(.semibold))
+                        Text(entry.snapshot.planConfigured
+                             ? (entry.snapshot.inlineSettings
+                                ? "添加后点右上角设置按钮配置套餐"
+                                : "长按小组件 → 编辑小组件，输入套餐总量")
+                             : "套餐设置请添加“NetFlow 套餐”小组件")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            } else if !entry.snapshot.planConfigured {
+                HStack {
+                    Text("今日、本月和累计流量独立统计")
+                        .font(.caption2)
+                    Spacer()
+                    speedPair
+                }
             } else if entry.snapshot.planUnlimited {
-                Text("不限量 · 累计 " + value(entry.snapshot.allTimeTotal))
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("套餐")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                        Text("不限量")
+                            .font(.headline.weight(.bold))
+                    }
+                    Spacer()
+                    speedPair
+                }
+            } else {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("套餐使用 · 每月 \(entry.snapshot.resetDay) 日重置")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                        Text(Format.bytes(entry.snapshot.planUsed) + " / " + Format.bytes(entry.snapshot.planCapacity))
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Text("剩余 " + Format.bytes(entry.snapshot.planRemaining))
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Text("\(planPercent)%")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(planProgress >= 0.9 ? .red : .indigo)
+                }
+
+                ProgressView(value: planProgress)
+                    .tint(planProgress >= 0.9 ? .red : .indigo)
+
+                HStack {
+                    speedPair
+                    Spacer()
+                    Text(
+                        "蜂窝 " + Format.bytes(entry.snapshot.monthCellular)
+                        + " · Wi-Fi " + Format.bytes(entry.snapshot.monthWiFi)
+                    )
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                }
+            }
+        }
+        .padding()
+        .widgetBackground()
+    }
+
+    private var mediumSettings: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("设置蜂窝套餐")
+                    .font(.caption.weight(.bold))
+                Spacer()
+                Button(intent: ToggleWidgetEditingIntent()) {
+                    Text("完成").font(.caption.weight(.bold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.indigo)
+            }
+            HStack(spacing: 7) {
+                Text("总量").font(.caption2).frame(width: 30, alignment: .leading)
+                capacityButton(-10, "-10")
+                capacityButton(-1, "−")
+                Text("\(WidgetPlanSettings.capacityGB) GB")
+                    .font(.caption.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .lineLimit(1)
+                capacityButton(1, "+")
+                capacityButton(10, "+10")
+            }
+            HStack(spacing: 9) {
+                Text("每月重置").font(.caption2)
+                resetButton(-1, "−")
+                Text("\(WidgetPlanSettings.resetDay) 日").font(.caption.weight(.bold))
+                resetButton(1, "+")
+                Spacer()
+                Button(intent: ToggleWidgetUnlimitedIntent()) {
+                    Label(WidgetPlanSettings.unlimited ? "不限量 ✓" : "不限量", systemImage: "infinity")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+            }
+            Text("点击完成保存；套餐用量只计算蜂窝流量")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .widgetBackground()
+    }
+
+    private var smallSettings: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("套餐设置").font(.caption.weight(.bold))
+                Spacer()
+                Button(intent: ToggleWidgetEditingIntent()) {
+                    Text("完成").font(.caption.weight(.bold))
+                }
+                .buttonStyle(.plain)
+            }
+            HStack {
+                Text("\(WidgetPlanSettings.capacityGB) GB")
+                    .font(.caption.weight(.bold))
+                Spacer()
+                capacityButton(-1, "−")
+                capacityButton(1, "+")
+            }
+            HStack {
+                Text("重置 \(WidgetPlanSettings.resetDay) 日").font(.caption2)
+                Spacer()
+                resetButton(-1, "−")
+                resetButton(1, "+")
+            }
+            Button(intent: ToggleWidgetUnlimitedIntent()) {
+                Text(WidgetPlanSettings.unlimited ? "不限量 ✓" : "不限量")
+                    .font(.caption2)
+            }
+            .buttonStyle(.plain)
+            Text("总量每次 ±1 GB").font(.system(size: 9)).foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .widgetBackground()
+    }
+
+    private func capacityButton(_ delta: Int, _ title: String) -> some View {
+        Button(intent: AdjustWidgetCapacityIntent(delta: delta)) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .frame(minWidth: 20, minHeight: 22)
+                .background(Color.indigo.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(delta > 0 ? "套餐增加 \(delta) GB" : "套餐减少 \(-delta) GB")
+    }
+
+    private func resetButton(_ delta: Int, _ title: String) -> some View {
+        Button(intent: AdjustWidgetResetDayIntent(delta: delta)) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .frame(minWidth: 20, minHeight: 22)
+                .background(Color.indigo.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(delta > 0 ? "重置日加一天" : "重置日减一天")
+    }
+
+    private var editButton: some View {
+        Button(intent: ToggleWidgetEditingIntent()) {
+            Image(systemName: "slider.horizontal.3")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.indigo)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("设置套餐")
+    }
+
+    private var accessoryRectangular: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if entry.snapshot.isPreview {
+                Text("NetFlow · 等待采样")
+                    .font(.headline)
+                Text("添加后开始统计")
                     .font(.caption2)
             } else {
-                Text(
-                    "套餐 " +
-                    String(percent) +
-                    "% · 剩余 " +
-                    Format.bytes(entry.snapshot.planRemaining)
-                )
-                .font(.caption2)
+                Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 本月 " + trafficText(entry.snapshot.monthTotal))
+                    .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+
+            if entry.snapshot.isEditing {
+                Text("请添加中号组件设置套餐").font(.caption2)
+            } else if entry.snapshot.isPreview {
+                EmptyView()
+            } else if !entry.snapshot.planConfigured {
+                Text("累计 " + trafficText(entry.snapshot.allTimeTotal))
+                    .font(.caption2)
+            } else if entry.snapshot.planUnlimited {
+                Text("累计 " + trafficText(entry.snapshot.allTimeTotal) + " · 不限量")
+                    .font(.caption2)
+            } else {
+                Text("套餐 " + String(planPercent) + "% · 剩余 " + Format.bytes(entry.snapshot.planRemaining))
+                    .font(.caption2)
             }
         }
     }
 
     private var accessoryInline: some View {
-        if entry.snapshot.isPreview {
+        if entry.snapshot.isEditing {
+            Text("NetFlow · 请用中号组件设套餐")
+        } else if entry.snapshot.isPreview {
             Text("NetFlow · 等待采样")
+        } else if !entry.snapshot.planConfigured {
+            Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 本月 " + trafficText(entry.snapshot.monthTotal))
         } else if entry.snapshot.planUnlimited {
-            Text("NetFlow · 今日 " + value(entry.snapshot.todayTotal) + " · 不限量")
+            Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 不限量")
         } else {
-            Text(
-                "NetFlow · 今日 " +
-                value(entry.snapshot.todayTotal) +
-                " · 套餐 " +
-                String(percent) +
-                "%"
-            )
+            Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 套餐 " + String(planPercent) + "%")
         }
     }
 
-    private func metric(_ title: String, _ bytes: UInt64) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+    private func compactMetric(_ title: String, _ value: UInt64) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
             Text(title)
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
+            Text(entry.snapshot.isPreview ? "—" : Format.bytes(value))
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-            Text(value(bytes))
+    private func mediumMetric(_ title: String, _ value: UInt64, _ icon: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(color)
+            Text(entry.snapshot.isPreview ? "—" : Format.bytes(value))
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -852,8 +1069,26 @@ private struct NetFlowWidgetView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func value(_ bytes: UInt64) -> String {
-        entry.snapshot.isPreview ? "—" : Format.bytes(bytes)
+    private var speedPair: some View {
+        HStack(spacing: 8) {
+            Label(Format.rate(entry.snapshot.down), systemImage: "arrow.down")
+                .foregroundStyle(.blue)
+            Label(Format.rate(entry.snapshot.up), systemImage: "arrow.up")
+                .foregroundStyle(.green)
+        }
+        .font(.system(size: 9, weight: .semibold))
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+    }
+
+    private var refreshButton: some View {
+        Button(intent: RefreshNetFlowIntent()) {
+            Image(systemName: "arrow.clockwise.circle.fill")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.indigo)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("立即刷新流量")
     }
 }
 
@@ -877,23 +1112,40 @@ private extension View {
     }
 }
 
-@main
-struct NetFlowWidget: Widget {
+struct NetFlowUsageWidget: Widget {
+    let kind = netFlowWidgetKind
+
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(
-            kind: widgetKind,
-            intent: NetFlowWidgetConfiguration.self,
-            provider: Provider()
-        ) { entry in
+        StaticConfiguration(kind: kind, provider: Provider(includesPlan: false)) { entry in
             NetFlowWidgetView(entry: entry)
         }
-        .configurationDisplayName("NetFlow")
-        .description("独立统计流量；长按编辑小组件可直接输入套餐总量和重置日。")
+        .configurationDisplayName("NetFlow 流量")
+        .description("兼容旧小组件，独立统计今日、本月和累计流量。")
         .supportedFamilies([
             .systemSmall,
             .systemMedium,
             .accessoryRectangular,
             .accessoryInline
         ])
+    }
+}
+
+struct NetFlowConfiguredWidget: Widget {
+    let kind = configuredWidgetKind
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: Provider(includesPlan: true)) { entry in
+            NetFlowWidgetView(entry: entry)
+        }
+        .configurationDisplayName("NetFlow")
+        .description("独立统计流量；使用小组件内的设置按钮调整套餐。")
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline])
+    }
+}
+
+@main
+struct NetFlowWidgetBundle: WidgetBundle {
+    var body: some Widget {
+        NetFlowConfiguredWidget()
     }
 }
