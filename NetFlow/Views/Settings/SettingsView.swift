@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var showShare = false
     @State private var showBackupImporter = false
     @State private var statusMessage: String?
+    @State private var showResetConfirmation = false
     private var appLocale: Locale { store.settings.appLanguage.locale }
 
     var body: some View {
@@ -15,6 +16,7 @@ struct SettingsView: View {
                 cardSection("language") {
                     Picker("language", selection: $store.settings.appLanguage) {
                         Text("system").tag(AppLanguage.system)
+                        Text("简体中文").tag(AppLanguage.simplifiedChinese)
                         Text("vietnamese").tag(AppLanguage.vietnamese)
                         Text("english").tag(AppLanguage.english)
                     }
@@ -40,7 +42,7 @@ struct SettingsView: View {
                 cardSection("data") {
                     Button("export_backup") { exportBackup() }
                     Button("import_backup") { showBackupImporter = true }
-                    Button("reset_all", role: .destructive) { store.resetAll() }
+                    Button("reset_all", role: .destructive) { showResetConfirmation = true }
                 }
 
                 Text("privacy_local_only")
@@ -68,6 +70,18 @@ struct SettingsView: View {
             allowsMultipleSelection: false
         ) { result in
             importBackup(result)
+        }
+        .confirmationDialog(
+            "确认清空所有流量记录？",
+            isPresented: $showResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("清空所有数据", role: .destructive) {
+                store.resetAll()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此操作会删除流量历史、提醒记录和当前统计，无法撤销。")
         }
         .alert(
             AppLocalization.string("data", locale: appLocale),
