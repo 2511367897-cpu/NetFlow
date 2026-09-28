@@ -14,6 +14,10 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
       - name: Static project checks
         run: bash Tools/check_project.sh
       - name: Build for iOS Simulator
