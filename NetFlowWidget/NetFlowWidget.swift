@@ -3,8 +3,6 @@ import SwiftUI
 import AppIntents
 import Darwin
 
-private let netFlowWidgetKind = "NetFlowUsageWidget"
-// A fresh kind avoids migrating the broken AppIntentConfiguration instances.
 private let configuredWidgetKind = "NetFlowPlanWidgetV2"
 
 private enum WidgetPlanSettings {
@@ -23,6 +21,11 @@ private enum WidgetPlanSettings {
 
     static func adjustCapacity(_ delta: Int) {
         defaults.set(max(1, min(100_000, capacityGB + delta)), forKey: capacityKey)
+        reload()
+    }
+
+    static func setCapacity(_ value: Int) {
+        defaults.set(max(1, min(100_000, value)), forKey: capacityKey)
         reload()
     }
 
@@ -59,6 +62,18 @@ struct AdjustWidgetCapacityIntent: AppIntent {
     init(delta: Int) { self.delta = delta }
     func perform() async throws -> some IntentResult {
         WidgetPlanSettings.adjustCapacity(delta)
+        return .result()
+    }
+}
+
+struct SetWidgetCapacityIntent: AppIntent {
+    static var title: LocalizedStringResource = "快速设置套餐总量"
+    static var openAppWhenRun = false
+    @Parameter(title: "GB") var value: Int
+    init() { self.value = 30 }
+    init(value: Int) { self.value = value }
+    func perform() async throws -> some IntentResult {
+        WidgetPlanSettings.setCapacity(value)
         return .result()
     }
 }
@@ -499,7 +514,6 @@ struct RefreshNetFlowIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         await WidgetTrafficStore.forceRefresh()
-        WidgetCenter.shared.reloadTimelines(ofKind: netFlowWidgetKind)
         WidgetCenter.shared.reloadTimelines(ofKind: configuredWidgetKind)
         return .result()
     }
@@ -707,87 +721,10 @@ private struct NetFlowWidgetView: View {
         Group {
             if entry.snapshot.isEditing {
                 mediumSettings
-            } else if entry.snapshot.planConfigured && !entry.snapshot.inlineSettings {
-                mediumEditableOverview
             } else {
                 mediumOverview
             }
         }
-    }
-
-    private var mediumEditableOverview: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Label("NetFlow", systemImage: "chart.line.uptrend.xyaxis")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.indigo)
-                Spacer()
-                Text("更新 " + Format.time(entry.snapshot.updatedAt))
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                refreshButton
-            }
-
-            HStack(spacing: 8) {
-                mediumMetric("今日", entry.snapshot.todayTotal, "sun.max.fill", .orange)
-                mediumMetric("本月", entry.snapshot.monthTotal, "calendar", .indigo)
-                mediumMetric("累计", entry.snapshot.allTimeTotal, "sum", .cyan)
-            }
-
-            Rectangle()
-                .fill(Color.indigo.opacity(0.12))
-                .frame(height: 1)
-
-            if entry.snapshot.isPreview {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("等待下次采样").font(.system(size: 13, weight: .bold))
-                    Text("长按小组件 → 编辑小组件，输入套餐总量")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                }
-            } else if entry.snapshot.planUnlimited {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("蜂窝套餐").font(.system(size: 9)).foregroundStyle(.secondary)
-                        Text("不限量").font(.system(size: 18, weight: .bold, design: .rounded))
-                    }
-                    Spacer()
-                    speedPair
-                }
-            } else {
-                HStack(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("本周期剩余 · 每月 \(entry.snapshot.resetDay) 日重置")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                        Text(Format.bytes(entry.snapshot.planRemaining))
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                    }
-                    Spacer(minLength: 6)
-                    Text("\(planPercent)%")
-                        .font(.system(size: 22, weight: .bold, design: .rounded))
-                        .foregroundStyle(planProgress >= 0.9 ? .red : .indigo)
-                }
-
-                ProgressView(value: planProgress)
-                    .tint(planProgress >= 0.9 ? .red : .indigo)
-
-                HStack {
-                    Text("已用 " + Format.bytes(entry.snapshot.planUsed)
-                         + " / " + Format.bytes(entry.snapshot.planCapacity))
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Spacer(minLength: 6)
-                    speedPair
-                }
-            }
-        }
-        .padding(13)
-        .widgetBackground()
     }
 
     private var mediumOverview: some View {
@@ -820,7 +757,7 @@ private struct NetFlowWidgetView: View {
                         Text(entry.snapshot.planConfigured
                              ? (entry.snapshot.inlineSettings
                                 ? "添加后点右上角设置按钮配置套餐"
-                                : "长按小组件 → 编辑小组件，输入套餐总量")
+                                : "点右上角设置按钮配置套餐")
                              : "套餐设置请添加“NetFlow 套餐”小组件")
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)
@@ -912,6 +849,13 @@ private struct NetFlowWidgetView: View {
                 capacityButton(1, "+")
                 capacityButton(10, "+10")
             }
+            HStack(spacing: 6) {
+                Text("快捷").font(.caption2).frame(width: 30, alignment: .leading)
+                presetCapacityButton(10)
+                presetCapacityButton(30)
+                presetCapacityButton(50)
+                presetCapacityButton(100)
+            }
             HStack(spacing: 9) {
                 Text("每月重置").font(.caption2)
                 resetButton(-1, "−")
@@ -946,8 +890,16 @@ private struct NetFlowWidgetView: View {
                 Text("\(WidgetPlanSettings.capacityGB) GB")
                     .font(.caption.weight(.bold))
                 Spacer()
+                capacityButton(-10, "-10")
                 capacityButton(-1, "−")
                 capacityButton(1, "+")
+                capacityButton(10, "+10")
+            }
+            HStack(spacing: 4) {
+                presetCapacityButton(10)
+                presetCapacityButton(30)
+                presetCapacityButton(50)
+                presetCapacityButton(100)
             }
             HStack {
                 Text("重置 \(WidgetPlanSettings.resetDay) 日").font(.caption2)
@@ -960,7 +912,7 @@ private struct NetFlowWidgetView: View {
                     .font(.caption2)
             }
             .buttonStyle(.plain)
-            Text("总量每次 ±1 GB").font(.system(size: 9)).foregroundStyle(.secondary)
+            Text("常用容量可一键设置").font(.system(size: 9)).foregroundStyle(.secondary)
         }
         .padding(10)
         .widgetBackground()
@@ -975,6 +927,22 @@ private struct NetFlowWidgetView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(delta > 0 ? "套餐增加 \(delta) GB" : "套餐减少 \(-delta) GB")
+    }
+
+    private func presetCapacityButton(_ value: Int) -> some View {
+        Button(intent: SetWidgetCapacityIntent(value: value)) {
+            Text("\(value)G")
+                .font(.system(size: 9, weight: .bold))
+                .frame(maxWidth: .infinity, minHeight: 22)
+                .background(
+                    WidgetPlanSettings.capacityGB == value
+                        ? Color.indigo.opacity(0.22)
+                        : Color.indigo.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 5)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("套餐设置为 \(value) GB")
     }
 
     private func resetButton(_ delta: Int, _ title: String) -> some View {
@@ -1109,24 +1077,6 @@ private extension View {
         } else {
             self.background(Color(uiColor: .secondarySystemBackground))
         }
-    }
-}
-
-struct NetFlowUsageWidget: Widget {
-    let kind = netFlowWidgetKind
-
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: Provider(includesPlan: false)) { entry in
-            NetFlowWidgetView(entry: entry)
-        }
-        .configurationDisplayName("NetFlow 流量")
-        .description("兼容旧小组件，独立统计今日、本月和累计流量。")
-        .supportedFamilies([
-            .systemSmall,
-            .systemMedium,
-            .accessoryRectangular,
-            .accessoryInline
-        ])
     }
 }
 
