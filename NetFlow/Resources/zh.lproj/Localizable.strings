@@ -96,7 +96,7 @@
 "cap_background" = "后台刷新";
 "cap_background_detail" = "由 iOS 调度，无法保证持续在后台运行。";
 "cap_location" = "位置与天气";
-"cap_location_detail" = "此版本的流量首页不再主动使用定位和天气。";
+"cap_location_detail" = "此版本无需定位或天气权限，不影响流量统计。";
 "cap_ssid" = "Wi‑Fi 连接";
 "cap_ssid_detail" = "显示 Wi‑Fi 当前是否处于连接状态。";
 "cap_public_ip" = "公网 IP";
@@ -106,7 +106,7 @@
 "cap_widgets" = "主屏幕小组件";
 "cap_widgets_detail" = "内置 WidgetKit 小组件；iOS 17 及以上支持点击刷新。";
 "cap_live_activities" = "实时活动";
-"cap_live_activities_detail" = "当前版本未启用实时活动。";
+"cap_live_activities_detail" = "已支持锁屏实时活动与灵动岛；若系统关闭实时活动权限会显示为受限。";
 "capability_signing_note" = "小组件共享流量数据需要签名时保留 App Group 权限。";
 "notification_usage_title" = "流量使用提醒";
 "notification_usage_body" = "%@ 已达到提醒阈值。剩余：%@。";
