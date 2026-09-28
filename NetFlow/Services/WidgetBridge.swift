@@ -31,6 +31,7 @@ enum NetFlowWidgetBridge {
         static let dayKey = "widget.day.key"
         static let monthKey = "widget.month.key"
         static let lastReloadRequest = "widget.lastReloadRequest"
+        static let resetToken = "widget.reset.token"
     }
 
     private static var defaults: UserDefaults? {
@@ -142,6 +143,7 @@ enum NetFlowWidgetBridge {
             defaults.removeObject(forKey: key)
         }
 
+        defaults.set(Date().timeIntervalSince1970, forKey: Key.resetToken)
         WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
     }
 
