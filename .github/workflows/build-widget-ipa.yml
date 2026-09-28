@@ -6,6 +6,7 @@ on:
     paths:
       - "NetFlow/**"
       - "NetFlowWidget/**"
+      - "Shared/**"
       - "project.yml"
       - ".github/workflows/build-widget-ipa.yml"
   workflow_dispatch:
@@ -39,11 +40,11 @@ jobs:
 
           mkdir -p Payload
           cp -R "$APP" Payload/NetFlow.app
-          zip -qry NetFlow_4.2.1_build30_CN_UsageUI_Widget_unsigned.ipa Payload
+          zip -qry NetFlow_4.2.2_build31_CN_LiveActivity_unsigned.ipa Payload
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: NetFlow-UsageUI-InteractiveWidget-IPA
-          path: NetFlow_4.2.1_build30_CN_UsageUI_Widget_unsigned.ipa
+          name: NetFlow-LiveActivity-IPA
+          path: NetFlow_4.2.2_build31_CN_LiveActivity_unsigned.ipa
           retention-days: 7
