@@ -1,0 +1,2 @@
+"CFBundleDisplayName" = "NetFlow";
+"NSLocalNetworkUsageDescription" = "NetFlow 需要读取本地网络信息，用于显示当前连接状态。";
