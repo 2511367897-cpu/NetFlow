@@ -104,10 +104,8 @@
 "cap_vpn" = "VPN 检测";
 "cap_vpn_detail" = "当 iOS 提供相关信息时，检测 VPN 通道接口与连接状态。";
 "cap_widgets" = "主屏幕小组件";
-"cap_widgets_detail" = "已内置 WidgetKit 小组件；App Group 可用时同步套餐数据，重签裁掉共享权限时会以独立统计模式运行。";
-"cap_live_activities" = "实时活动";
-"cap_live_activities_detail" = "已支持锁屏实时活动与灵动岛；若系统关闭实时活动权限会显示为受限。";
-"capability_signing_note" = "小组件共享流量数据需要签名时保留 App Group 权限。";
+"cap_widgets_detail" = "已内置独立统计的小组件；主屏幕和锁屏小组件需随 App 一起正确签名安装。";
+"capability_signing_note" = "小组件独立读取接口计数，刷新由 iOS 调度，无法保证每 5 分钟准时运行。";
 "notification_usage_title" = "流量使用提醒";
 "notification_usage_body" = "%@ 已达到提醒阈值。剩余：%@。";
 "unit" = "单位";
