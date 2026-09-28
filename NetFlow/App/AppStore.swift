@@ -26,6 +26,9 @@ final class AppStore: ObservableObject {
         plan = loaded.plan
         dailyRecords = loaded.records
         alerts = loaded.alerts
+        if let cachedSnapshot = NetworkSnapshotCache.load() {
+            liveSnapshot = cachedSnapshot
+        }
         networkContext.setLocale(settings.appLanguage.locale)
         if normalizePlanCycle(now: Date()) {
             save()
@@ -97,7 +100,7 @@ final class AppStore: ObservableObject {
         }
 
         let calendar = Calendar.current
-        let totalDuration = end.timeIntervalSince(start)
+        let isEstimatedGap = end.timeIntervalSince(start) > 60
         var cursor = start
         var remaining = delta
 
@@ -112,7 +115,8 @@ final class AppStore: ObservableObject {
             if isLastSegment {
                 segment = remaining
             } else {
-                let fraction = min(max(segmentEnd.timeIntervalSince(cursor) / totalDuration, 0), 1)
+                let remainingDuration = max(end.timeIntervalSince(cursor), 0.001)
+                let fraction = min(max(segmentEnd.timeIntervalSince(cursor) / remainingDuration, 0), 1)
                 segment = NetworkDelta(
                     wifiReceived: portion(remaining.wifiReceived, fraction: fraction),
                     wifiSent: portion(remaining.wifiSent, fraction: fraction),
@@ -129,27 +133,38 @@ final class AppStore: ObservableObject {
                 )
             }
 
-            merge(delta: segment, sampledAt: cursor, lastUpdated: segmentEnd)
+            merge(
+                delta: segment,
+                sampledAt: cursor,
+                lastUpdated: segmentEnd,
+                estimated: isEstimatedGap
+            )
             cursor = segmentEnd
         }
     }
 
-    private func merge(delta: NetworkDelta, sampledAt: Date, lastUpdated: Date) {
+    private func merge(
+        delta: NetworkDelta,
+        sampledAt: Date,
+        lastUpdated: Date,
+        estimated: Bool = false
+    ) {
         let calendar = Calendar.current
         let day = calendar.startOfDay(for: sampledAt)
 
         if let index = dailyRecords.firstIndex(where: { calendar.isDate($0.date, inSameDayAs: day) }) {
             dailyRecords[index].add(delta)
             dailyRecords[index].lastUpdated = max(dailyRecords[index].lastUpdated, lastUpdated)
+            dailyRecords[index].isEstimated = dailyRecords[index].isEstimated || estimated
         } else {
-            dailyRecords.append(
-                DailyUsageRecord(
-                    date: day,
-                    delta: delta,
-                    firstUpdated: sampledAt,
-                    lastUpdated: lastUpdated
-                )
+            var record = DailyUsageRecord(
+                date: day,
+                delta: delta,
+                firstUpdated: sampledAt,
+                lastUpdated: lastUpdated
             )
+            record.isEstimated = estimated
+            dailyRecords.append(record)
             dailyRecords.sort { $0.date > $1.date }
         }
     }
@@ -234,6 +249,17 @@ final class AppStore: ObservableObject {
 
     func save() {
         persistence.save(settings: settings, plan: plan, records: dailyRecords, alerts: alerts)
+
+        if liveSnapshot.timestamp != .distantPast {
+            NetworkSnapshotCache.save(liveSnapshot)
+        }
+
+        NetFlowWidgetBridge.publish(
+            records: dailyRecords,
+            plan: plan,
+            rate: currentRate,
+            snapshot: liveSnapshot
+        )
     }
 
     func makeBackup() throws -> URL {
@@ -253,6 +279,7 @@ final class AppStore: ObservableObject {
         liveSnapshot = .zero
         currentRate = .zero
         tracker.resetBaseline()
+        NetworkSnapshotCache.clear()
         networkContext.setLocale(settings.appLanguage.locale)
         _ = normalizePlanCycle(now: Date())
         save()
@@ -266,6 +293,7 @@ final class AppStore: ObservableObject {
         plan.manualUsedBytes = 0
         plan.triggeredAlertIDs.removeAll()
         tracker.resetBaseline()
+        NetworkSnapshotCache.clear()
         save()
     }
 
