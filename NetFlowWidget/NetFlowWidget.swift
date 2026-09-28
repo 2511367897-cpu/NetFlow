@@ -93,12 +93,19 @@ private struct UsageSnapshot {
 }
 
 private enum SharedTrafficStore {
-    private static var defaults: UserDefaults {
-        UserDefaults(suiteName: netFlowGroupID) ?? .standard
+    // 小组件把自己的计数保存在扩展自身的 UserDefaults 中。
+    // 即使重签时 App Group 权限被裁掉，Widget 仍然可以独立工作。
+    private static var defaults: UserDefaults { .standard }
+
+    private static var appGroupDefaults: UserDefaults? {
+        UserDefaults(suiteName: netFlowGroupID)
     }
+
+    private static let lastAppSyncKey = "widget.local.lastAppSync"
 
     static func sample(now: Date = Date()) -> UsageSnapshot {
         let defaults = defaults
+        syncFromAppIfNewer(into: defaults)
         resetPeriodIfNeeded(defaults: defaults, now: now)
 
         let current = RawCounterReader.read()
@@ -176,7 +183,53 @@ private enum SharedTrafficStore {
     }
 
     static func load() -> UsageSnapshot {
-        load(defaults: defaults)
+        let defaults = defaults
+        syncFromAppIfNewer(into: defaults)
+        return load(defaults: defaults)
+    }
+
+    private static func syncFromAppIfNewer(into local: UserDefaults) {
+        guard let shared = appGroupDefaults else { return }
+
+        let sharedTimestamp = shared.double(forKey: SharedKey.updatedAt)
+        guard sharedTimestamp > 0 else { return }
+
+        let lastSync = local.double(forKey: lastAppSyncKey)
+        guard sharedTimestamp > lastSync else { return }
+
+        let doubleKeys = [
+            SharedKey.todayTotal,
+            SharedKey.todayCellular,
+            SharedKey.todayWiFi,
+            SharedKey.monthTotal,
+            SharedKey.monthCellular,
+            SharedKey.monthWiFi,
+            SharedKey.planRemaining,
+            SharedKey.rateDown,
+            SharedKey.rateUp,
+            SharedKey.updatedAt,
+            SharedKey.rawWiFiReceived,
+            SharedKey.rawWiFiSent,
+            SharedKey.rawCellularReceived,
+            SharedKey.rawCellularSent,
+            SharedKey.rawTimestamp
+        ]
+
+        for key in doubleKeys {
+            local.set(shared.double(forKey: key), forKey: key)
+        }
+
+        local.set(shared.bool(forKey: SharedKey.planUnlimited), forKey: SharedKey.planUnlimited)
+        local.set(shared.bool(forKey: SharedKey.rawAvailable), forKey: SharedKey.rawAvailable)
+
+        if let day = shared.string(forKey: SharedKey.dayKey) {
+            local.set(day, forKey: SharedKey.dayKey)
+        }
+        if let month = shared.string(forKey: SharedKey.monthKey) {
+            local.set(month, forKey: SharedKey.monthKey)
+        }
+
+        local.set(sharedTimestamp, forKey: lastAppSyncKey)
     }
 
     private static func load(defaults: UserDefaults) -> UsageSnapshot {
