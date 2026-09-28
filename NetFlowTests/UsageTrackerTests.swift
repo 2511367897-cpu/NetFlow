@@ -40,6 +40,22 @@ final class UsageTrackerTests: XCTestCase {
         XCTAssertEqual(second.rate.cellularDown, 20, accuracy: 0.001)
     }
 
+    func testLongGapCountsUsageButDoesNotPretendToBeLiveSpeed() {
+        let reader = StubReader([
+            snapshot(100, wifi: 100, cellular: 300),
+            snapshot(200, wifi: 300, cellular: 700)
+        ])
+        let tracker = UsageTracker(reader: reader)
+
+        let first = tracker.sample(previous: .zero)
+        let result = tracker.sample(previous: first.snapshot)
+
+        XCTAssertTrue(result.delta.isValid)
+        XCTAssertEqual(result.delta.wifiReceived, 200)
+        XCTAssertEqual(result.delta.cellularReceived, 400)
+        XCTAssertEqual(result.rate, .zero)
+    }
+
     func testCounterResetInvalidatesSample() {
         let reader = StubReader([
             snapshot(100, wifi: 100, cellular: 300),
