@@ -7,7 +7,7 @@ private let netFlowWidgetKind = "NetFlowUsageWidget"
 
 struct NetFlowWidgetConfigurationIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "NetFlow 套餐设置"
-    static var description = IntentDescription("小组件独立保存套餐设置，不依赖 App Group。")
+    static var description = IntentDescription("小组件独立保存套餐设置和流量记录。重置日支持 1–28 日。")
 
     @Parameter(title: "套餐总量（GB）", default: 30.0)
     var planCapacityGB: Double
@@ -69,10 +69,10 @@ private struct DailyBucket: Codable {
 }
 
 private enum RawCounterReader {
-    static func read() -> RawCounters {
+    static func read() -> RawCounters? {
         var interfaceList: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&interfaceList) == 0, let first = interfaceList else {
-            return .zero
+            return nil
         }
         defer { freeifaddrs(first) }
 
@@ -83,7 +83,7 @@ private enum RawCounterReader {
             let item = interface.pointee
             let name = String(cString: item.ifa_name)
 
-            if let rawData = item.ifa_data {
+            if item.ifa_addr?.pointee.sa_family == UInt8(AF_LINK), let rawData = item.ifa_data {
                 let data = rawData.assumingMemoryBound(to: if_data.self).pointee
 
                 if name == "en0" {
@@ -131,6 +131,7 @@ private enum WidgetTrafficStore {
         static let rawCellularSent = "self.raw.cellular.sent"
         static let rawTimestamp = "self.raw.timestamp"
         static let rawAvailable = "self.raw.available"
+        static let hasMeasurement = "self.hasMeasurement"
         static let allTimeTotal = "self.alltime.total"
         static let rateDown = "self.rate.down"
         static let rateUp = "self.rate.up"
@@ -140,48 +141,10 @@ private enum WidgetTrafficStore {
 
     private static let defaults = UserDefaults.standard
     private static let calendar = Calendar.current
-
-    static func sample(
-        configuration: NetFlowWidgetConfigurationIntent,
-        now: Date = Date()
-    ) -> UsageSnapshot {
-        let current = RawCounterReader.read()
-        let currentTimestamp = now.timeIntervalSince1970
-
-        if defaults.bool(forKey: Key.rawAvailable) {
-            let previous = RawCounters(
-                wifiReceived: bytes(defaults.double(forKey: Key.rawWiFiReceived)),
-                wifiSent: bytes(defaults.double(forKey: Key.rawWiFiSent)),
-                cellularReceived: bytes(defaults.double(forKey: Key.rawCellularReceived)),
-                cellularSent: bytes(defaults.double(forKey: Key.rawCellularSent))
-            )
-            let previousTimestamp = defaults.double(forKey: Key.rawTimestamp)
-
-            if countersAreValid(current: current, previous: previous) {
-                let delta = TrafficDelta(
-                    wifiReceived: current.wifiReceived - previous.wifiReceived,
-                    wifiSent: current.wifiSent - previous.wifiSent,
-                    cellularReceived: current.cellularReceived - previous.cellular.received,
-                    cellularSent: current.cellular.sent - previous.cellular.sent
-                )
-            }
-        }
-
-        defaults.set(Double(current.wifiReceived), forKey: Key.rawWiFiReceived)
-        defaults.set(Double(current.wifiSent), forKey: Key.rawWiFiSent)
-        defaults.set(Double(current.cellularReceived), forKey: Key.rawCellularReceived)
-        defaults.set(Double(current.cellularSent), forKey: Key.rawCellularSent)
-        defaults.set(currentTimestamp, forKey: Key.rawTimestamp)
-        defaults.set(true, forKey: Key.rawAvailable)
-        defaults.set(currentTimestamp, forKey: Key.updatedAt)
-
-        return load(configuration: configuration, now: now)
-    }
+    private static let sampleLock = NSLock()
 
     static func forceRefresh() async {
-        let current = RawCounterReader.read()
-        let now = Date()
-        consume(current: current, now: now)
+        sampleCurrent(now: Date())
 
         do {
             try await Task.sleep(nanoseconds: 800_000_000)
@@ -189,7 +152,15 @@ private enum WidgetTrafficStore {
             return
         }
 
-        consume(current: RawCounterReader.read(), now: Date())
+        sampleCurrent(now: Date())
+    }
+
+    private static func sampleCurrent(now: Date) {
+        sampleLock.lock()
+        defer { sampleLock.unlock() }
+        if let current = RawCounterReader.read() {
+            consume(current: current, now: now)
+        }
     }
 
     private static func consume(current: RawCounters, now: Date) {
@@ -197,14 +168,15 @@ private enum WidgetTrafficStore {
 
         if defaults.bool(forKey: Key.rawAvailable) {
             let previous = RawCounters(
-                wifiReceived: bytes(defaults.double(forKey: Key.rawWiFiReceived)),
-                wifiSent: bytes(defaults.double(forKey: Key.rawWiFiSent)),
-                cellularReceived: bytes(defaults.double(forKey: Key.rawCellularReceived)),
-                cellularSent: bytes(defaults.double(forKey: Key.rawCellularSent))
+                wifiReceived: storedBytes(Key.rawWiFiReceived),
+                wifiSent: storedBytes(Key.rawWiFiSent),
+                cellularReceived: storedBytes(Key.rawCellularReceived),
+                cellularSent: storedBytes(Key.rawCellularSent)
             )
             let previousTimestamp = defaults.double(forKey: Key.rawTimestamp)
 
-            if countersAreValid(current: current, previous: previous) {
+            if previousTimestamp > 0, previousTimestamp < currentTimestamp,
+               countersAreValid(current: current, previous: previous) {
                 let delta = TrafficDelta(
                     wifiReceived: current.wifiReceived - previous.wifiReceived,
                     wifiSent: current.wifiSent - previous.wifiSent,
@@ -212,6 +184,7 @@ private enum WidgetTrafficStore {
                     cellularSent: current.cellularSent - previous.cellularSent
                 )
                 record(delta: delta, from: Date(timeIntervalSince1970: previousTimestamp), to: now)
+                defaults.set(true, forKey: Key.hasMeasurement)
 
                 let elapsed = currentTimestamp - previousTimestamp
                 if elapsed >= 0.2 && elapsed <= 10 {
@@ -227,13 +200,16 @@ private enum WidgetTrafficStore {
                     defaults.set(0, forKey: Key.rateDown)
                     defaults.set(0, forKey: Key.rateUp)
                 }
+            } else {
+                defaults.set(0, forKey: Key.rateDown)
+                defaults.set(0, forKey: Key.rateUp)
             }
         }
 
-        defaults.set(Double(current.wifiReceived), forKey: Key.rawWiFiReceived)
-        defaults.set(Double(current.wifiSent), forKey: Key.rawWiFiSent)
-        defaults.set(Double(current.cellularReceived), forKey: Key.rawCellularReceived)
-        defaults.set(Double(current.cellularSent), forKey: Key.rawCellularSent)
+        defaults.set(NSNumber(value: current.wifiReceived), forKey: Key.rawWiFiReceived)
+        defaults.set(NSNumber(value: current.wifiSent), forKey: Key.rawWiFiSent)
+        defaults.set(NSNumber(value: current.cellularReceived), forKey: Key.rawCellularReceived)
+        defaults.set(NSNumber(value: current.cellularSent), forKey: Key.rawCellularSent)
         defaults.set(currentTimestamp, forKey: Key.rawTimestamp)
         defaults.set(true, forKey: Key.rawAvailable)
         defaults.set(currentTimestamp, forKey: Key.updatedAt)
@@ -243,7 +219,11 @@ private enum WidgetTrafficStore {
         configuration: NetFlowWidgetConfigurationIntent,
         now: Date = Date()
     ) -> UsageSnapshot {
-        consume(current: RawCounterReader.read(), now: now)
+        sampleLock.lock()
+        defer { sampleLock.unlock() }
+        if let current = RawCounterReader.read() {
+            consume(current: current, now: now)
+        }
         return load(configuration: configuration, now: now)
     }
 
@@ -288,7 +268,7 @@ private enum WidgetTrafficStore {
             monthTotal: monthTotal,
             monthCellular: monthCellular,
             monthWiFi: monthWiFi,
-            allTimeTotal: bytes(defaults.double(forKey: Key.allTimeTotal)),
+            allTimeTotal: max(storedBytes(Key.allTimeTotal), monthTotal),
             planCapacity: capacity,
             planUsed: planUsed,
             planRemaining: remaining,
@@ -297,7 +277,7 @@ private enum WidgetTrafficStore {
             down: defaults.double(forKey: Key.rateDown),
             up: defaults.double(forKey: Key.rateUp),
             updatedAt: timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : now,
-            isPreview: false
+            isPreview: !defaults.bool(forKey: Key.hasMeasurement)
         )
     }
 
@@ -348,8 +328,8 @@ private enum WidgetTrafficStore {
             cursor = segmentEnd
         }
 
-        let oldAllTime = bytes(defaults.double(forKey: Key.allTimeTotal))
-        defaults.set(Double(saturatingAdd(oldAllTime, delta.total)), forKey: Key.allTimeTotal)
+        let oldAllTime = storedBytes(Key.allTimeTotal)
+        defaults.set(NSNumber(value: saturatingAdd(oldAllTime, delta.total)), forKey: Key.allTimeTotal)
 
         prune(&buckets, keepingDays: 400, now: end)
         saveBuckets(buckets)
@@ -426,9 +406,8 @@ private enum WidgetTrafficStore {
         return overflow ? UInt64.max : value
     }
 
-    private static func bytes(_ value: Double) -> UInt64 {
-        guard value.isFinite, value > 0 else { return 0 }
-        return value >= Double(UInt64.max) ? UInt64.max : UInt64(value)
+    private static func storedBytes(_ key: String) -> UInt64 {
+        defaults.object(forKey: key).flatMap { $0 as? NSNumber }?.uint64Value ?? 0
     }
 }
 
@@ -583,7 +562,7 @@ private struct NetFlowWidgetView: View {
             Divider()
 
             if entry.snapshot.isPreview {
-                Text("添加后自动统计；长按可设置套餐")
+                Text("等待下次采样；长按可设置套餐")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
             } else if entry.snapshot.planUnlimited {
@@ -649,7 +628,7 @@ private struct NetFlowWidgetView: View {
             if entry.snapshot.isPreview {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("添加后自动统计")
+                        Text("等待下次采样")
                             .font(.caption.weight(.semibold))
                         Text("长按小组件 → 编辑小组件，可设置套餐总量和重置日")
                             .font(.system(size: 9))
@@ -818,7 +797,7 @@ struct NetFlowUsageWidget: Widget {
             NetFlowWidgetView(entry: entry)
         }
         .configurationDisplayName("NetFlow 流量")
-        .description("独立统计今日、本月、累计和套餐用量；不依赖 App Group。")
+        .description("独立统计今日、本月、累计和套餐用量；约每 5 分钟请求更新，实际由 iOS 调度。")
         .supportedFamilies([
             .systemSmall,
             .systemMedium,
