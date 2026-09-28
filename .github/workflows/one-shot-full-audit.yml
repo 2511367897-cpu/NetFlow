@@ -1,5 +1,5 @@
 name: One Shot Full Audit 4.2.7
-# final audited source snapshot
+# final audit with simulator-only entitlement override
 
 on:
   push:
@@ -49,6 +49,10 @@ jobs:
                 -scheme NetFlow \
                 -configuration Debug \
                 -destination "platform=iOS Simulator,id=$DEVICE_UDID" \
+                CODE_SIGN_ENTITLEMENTS="" \
+                CODE_SIGN_IDENTITY="-" \
+                AD_HOC_CODE_SIGNING_ALLOWED=YES \
+                DEVELOPMENT_TEAM="" \
                 test >/tmp/xctest.log 2>&1
               TEST_STATUS=$?
             else
