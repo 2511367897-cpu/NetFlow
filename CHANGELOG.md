@@ -1,4 +1,4 @@
-# Changelog
+## 4.2.12 (41)\n\n- Replaced multiple/legacy widget implementations with one NetFlow widget.\n- App and widget now use the same App Group data file as the single source of truth.\n- App requests WidgetKit reloads after persisted usage or plan changes.\n- Removed the widget-only traffic counters and widget-only plan settings.\n- Widget now shows today, month, lifetime, plan used/remaining, and percentage from app data.\n- Removed obsolete .widget_patch files.\n\n# Changelog
 
 All notable changes to NetFlow are documented here.
 
