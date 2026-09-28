@@ -5,7 +5,7 @@ cd "$ROOT"
 echo "[1/8] Swift parse"
 swiftc -parse $(find NetFlow NetFlowWidget Shared NetFlowTests -name '*.swift' -print 2>/dev/null | sort)
 echo "[2/8] Property lists"
-plutil -lint NetFlow/Info.plist NetFlow/NetFlow.entitlements NetFlowWidget/Info.plist NetFlowWidget/NetFlowWidget.entitlements
+plutil -lint NetFlow/Info.plist NetFlowWidget/Info.plist
 echo "[3/8] Localizations"
 plutil -lint NetFlow/Resources/en.lproj/Localizable.strings NetFlow/Resources/vi.lproj/Localizable.strings NetFlow/Resources/zh.lproj/Localizable.strings
 echo "[4/8] App icon"
@@ -44,8 +44,9 @@ echo "[7/8] Required bundle keys"
 for key in CFBundleExecutable CFBundleIdentifier CFBundlePackageType CFBundleShortVersionString CFBundleVersion; do
   /usr/libexec/PlistBuddy -c "Print :$key" NetFlow/Info.plist >/dev/null 2>&1 || plutil -extract "$key" raw NetFlow/Info.plist >/dev/null
  done
-echo "[8/8] XCTest target"
+echo "[8/8] XCTest target and removed capabilities"
 test -d NetFlowTests
 grep -q 'NetFlowTests' NetFlow.xcodeproj/project.pbxproj
 test "$(find NetFlowTests -name '*Tests.swift' -print | wc -l | tr -d ' ')" -ge 1
+! grep -R 'com.apple.security.application-groups\|group.com.duyhoang.netflow\|ActivityConfiguration\|DynamicIsland\|NetFlowLiveActivity' NetFlow NetFlowWidget project.yml --include='*.swift' --include='*.plist' --include='*.yml'
 echo "Static project checks passed. Run xcodebuild on macOS for the final SDK compile/signing check."
