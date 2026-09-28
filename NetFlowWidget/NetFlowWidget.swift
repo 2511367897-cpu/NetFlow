@@ -94,6 +94,8 @@ private struct UsageSnapshot {
     var planUsed: UInt64 = 0
     var planRemaining: UInt64 = 0
     var planUnlimited = false
+    var hasAppSync = false
+    var isPreview = false
     var down: Double = 0
     var up: Double = 0
     var updatedAt = Date()
@@ -267,6 +269,8 @@ private enum SharedTrafficStore {
             planUsed: bytes(defaults.double(forKey: SharedKey.planUsed)),
             planRemaining: bytes(defaults.double(forKey: SharedKey.planRemaining)),
             planUnlimited: defaults.bool(forKey: SharedKey.planUnlimited),
+            hasAppSync: defaults.double(forKey: lastAppSyncKey) > 0,
+            isPreview: false,
             down: defaults.double(forKey: SharedKey.rateDown),
             up: defaults.double(forKey: SharedKey.rateUp),
             updatedAt: timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : Date()
@@ -343,19 +347,21 @@ private struct Provider: TimelineProvider {
         NetFlowEntry(
             date: .now,
             snapshot: UsageSnapshot(
-                todayTotal: 1_860_000_000,
-                todayCellular: 1_120_000_000,
-                todayWiFi: 740_000_000,
-                monthTotal: 18_600_000_000,
-                monthCellular: 11_400_000_000,
-                monthWiFi: 7_200_000_000,
-                allTimeTotal: 86_400_000_000,
-                planCapacity: 30_000_000_000,
-                planUsed: 11_400_000_000,
-                planRemaining: 18_600_000_000,
+                todayTotal: 0,
+                todayCellular: 0,
+                todayWiFi: 0,
+                monthTotal: 0,
+                monthCellular: 0,
+                monthWiFi: 0,
+                allTimeTotal: 0,
+                planCapacity: 0,
+                planUsed: 0,
+                planRemaining: 0,
                 planUnlimited: false,
-                down: 2_400_000,
-                up: 320_000,
+                hasAppSync: false,
+                isPreview: true,
+                down: 0,
+                up: 0,
                 updatedAt: .now
             )
         )
@@ -426,6 +432,10 @@ private struct NetFlowWidgetView: View {
         Int((planProgress * 100).rounded())
     }
 
+    private func trafficText(_ bytes: UInt64) -> String {
+        entry.snapshot.isPreview ? "—" : Format.bytes(bytes)
+    }
+
     var body: some View {
         Group {
             switch family {
@@ -464,7 +474,7 @@ private struct NetFlowWidgetView: View {
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(Format.bytes(entry.snapshot.allTimeTotal))
+                Text(trafficText(entry.snapshot.allTimeTotal))
                     .font(.system(size: 10, weight: .semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -472,7 +482,19 @@ private struct NetFlowWidgetView: View {
 
             Divider()
 
-            if entry.snapshot.planUnlimited {
+            if entry.snapshot.isPreview {
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("添加后显示真实流量")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text("今日 · 本月 · 累计 · 套餐比例")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                }
+            } else if entry.snapshot.planUnlimited {
                 HStack {
                     Label("套餐", systemImage: "simcard.2.fill")
                         .font(.system(size: 9))
@@ -514,10 +536,10 @@ private struct NetFlowWidgetView: View {
             } else {
                 HStack {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("套餐未同步")
+                        Text(entry.snapshot.hasAppSync ? "套餐未设置" : "共享权限未生效")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(.secondary)
-                        Text("打开 NetFlow 一次即可")
+                        Text(entry.snapshot.hasAppSync ? "请在 App 内设置套餐" : "重签需保留 App Group")
                             .font(.system(size: 8))
                             .foregroundStyle(.tertiary)
                     }
@@ -556,7 +578,19 @@ private struct NetFlowWidgetView: View {
 
             Divider()
 
-            if entry.snapshot.planUnlimited {
+            if entry.snapshot.isPreview {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("添加后显示真实流量")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("今日 · 本月 · 累计 · 套餐用量与比例")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                }
+            } else if entry.snapshot.planUnlimited {
                 HStack {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("套餐")
@@ -618,10 +652,10 @@ private struct NetFlowWidgetView: View {
             } else {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("套餐未同步")
+                        Text(entry.snapshot.hasAppSync ? "套餐未设置" : "共享权限未生效")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
-                        Text("打开 NetFlow 一次后自动同步")
+                        Text(entry.snapshot.hasAppSync ? "请在 App 内设置套餐" : "重签时必须保留 App Group")
                             .font(.system(size: 9))
                             .foregroundStyle(.tertiary)
                     }
@@ -637,15 +671,15 @@ private struct NetFlowWidgetView: View {
     private var accessoryRectangular: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(
-                "今日 " + Format.bytes(entry.snapshot.todayTotal)
-                + " · 本月 " + Format.bytes(entry.snapshot.monthTotal)
+                "今日 " + trafficText(entry.snapshot.todayTotal)
+                + " · 本月 " + trafficText(entry.snapshot.monthTotal)
             )
             .font(.headline)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
 
             if entry.snapshot.planUnlimited {
-                Text("累计 " + Format.bytes(entry.snapshot.allTimeTotal) + " · 套餐不限量")
+                Text("累计 " + trafficText(entry.snapshot.allTimeTotal) + " · 套餐不限量")
                     .font(.caption2)
                     .lineLimit(1)
             } else if entry.snapshot.planCapacity > 0 {
@@ -656,7 +690,7 @@ private struct NetFlowWidgetView: View {
                 .font(.caption2)
                 .lineLimit(1)
             } else {
-                Text("累计 " + Format.bytes(entry.snapshot.allTimeTotal))
+                Text("累计 " + trafficText(entry.snapshot.allTimeTotal))
                     .font(.caption2)
                     .lineLimit(1)
             }
@@ -665,14 +699,14 @@ private struct NetFlowWidgetView: View {
 
     private var accessoryInline: some View {
         if entry.snapshot.planUnlimited {
-            Text("今日 " + Format.bytes(entry.snapshot.todayTotal) + " · 不限量")
+            Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 不限量")
         } else if entry.snapshot.planCapacity > 0 {
             Text(
-                "今日 " + Format.bytes(entry.snapshot.todayTotal)
+                "今日 " + trafficText(entry.snapshot.todayTotal)
                 + " · 套餐 " + String(planPercent) + "%"
             )
         } else {
-            Text("今日 " + Format.bytes(entry.snapshot.todayTotal))
+            Text("今日 " + trafficText(entry.snapshot.todayTotal))
         }
     }
 
@@ -681,7 +715,7 @@ private struct NetFlowWidgetView: View {
             Text(title)
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
-            Text(Format.bytes(value))
+            Text(entry.snapshot.isPreview ? "—" : Format.bytes(value))
                 .font(.system(size: 15, weight: .bold, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
@@ -700,7 +734,7 @@ private struct NetFlowWidgetView: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(color)
 
-            Text(Format.bytes(value))
+            Text(entry.snapshot.isPreview ? "—" : Format.bytes(value))
                 .font(.system(size: 14, weight: .bold, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
