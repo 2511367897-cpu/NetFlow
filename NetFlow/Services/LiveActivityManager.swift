@@ -36,7 +36,6 @@ final class NetFlowLiveActivityManager {
         // Only auto-create once during one app process lifetime. If the user
         // dismisses the Live Activity manually, do not immediately recreate it.
         guard !hasRequestedThisSession else { return }
-        hasRequestedThisSession = true
 
         do {
             _ = try Activity<NetFlowActivityAttributes>.request(
@@ -44,8 +43,10 @@ final class NetFlowLiveActivityManager {
                 content: content,
                 pushType: nil
             )
+            hasRequestedThisSession = true
         } catch {
-            // Live Activity is optional. Failure must never block traffic sampling.
+            // A transient ActivityKit failure may recover later in the same session,
+            // so only mark the automatic request as consumed after it succeeds.
         }
     }
 
