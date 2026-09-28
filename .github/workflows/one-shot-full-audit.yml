@@ -1,5 +1,5 @@
 name: One Shot Full Audit 4.2.7
-# final audit with simulator-only entitlement override
+# final audit with exact simulator UDID
 
 on:
   push:
@@ -42,7 +42,7 @@ jobs:
           fi
 
           if [ "$XCODEGEN_STATUS" -eq 0 ]; then
-            DEVICE_UDID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(dev["udid"] for devices in d.get("devices",{}).values() for dev in devices if dev.get("isAvailable") and dev.get("name","").startswith("iPhone")), "")')
+            DEVICE_UDID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.stdout.write(next((dev["udid"] for devices in d.get("devices",{}).values() for dev in devices if dev.get("isAvailable") and dev.get("name","").startswith("iPhone")), ""))')
             if [ -n "$DEVICE_UDID" ]; then
               xcodebuild \
                 -project NetFlow.xcodeproj \
