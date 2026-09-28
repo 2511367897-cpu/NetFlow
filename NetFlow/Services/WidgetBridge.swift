@@ -12,6 +12,9 @@ enum NetFlowWidgetBridge {
         static let monthTotal = "widget.month.total"
         static let monthCellular = "widget.month.cellular"
         static let monthWiFi = "widget.month.wifi"
+        static let allTimeTotal = "widget.alltime.total"
+        static let planCapacity = "widget.plan.capacity"
+        static let planUsed = "widget.plan.used"
         static let planRemaining = "widget.plan.remaining"
         static let planUnlimited = "widget.plan.unlimited"
         static let rateDown = "widget.rate.down"
@@ -54,6 +57,17 @@ enum NetFlowWidgetBridge {
         let monthTotal = monthRecords.reduce(UInt64(0)) { $0 &+ $1.totalBytes }
         let monthCellular = monthRecords.reduce(UInt64(0)) { $0 &+ $1.cellularTotalBytes }
         let monthWiFi = monthRecords.reduce(UInt64(0)) { $0 &+ $1.wifiTotalBytes }
+        let allTimeTotal = records.reduce(UInt64(0)) { $0 &+ $1.totalBytes }
+
+        let cycle = plan.cycleInterval(containing: now)
+        let cycleCellular = records
+            .filter { cycle.contains($0.date) }
+            .reduce(UInt64(0)) { $0 &+ $1.cellularTotalBytes }
+        let cycleManual = cycle.start == plan.activeCycleStart ? plan.manualUsedBytes : 0
+        let planUsed = cycleCellular &+ cycleManual
+        let planCapacity = plan.isUnlimited
+            ? UInt64(0)
+            : (cycle.start == plan.activeCycleStart ? plan.effectiveCapacityBytes : plan.capacityBytes)
 
         defaults.set(Double(today?.totalBytes ?? 0), forKey: Key.todayTotal)
         defaults.set(Double(today?.cellularTotalBytes ?? 0), forKey: Key.todayCellular)
@@ -61,6 +75,9 @@ enum NetFlowWidgetBridge {
         defaults.set(Double(monthTotal), forKey: Key.monthTotal)
         defaults.set(Double(monthCellular), forKey: Key.monthCellular)
         defaults.set(Double(monthWiFi), forKey: Key.monthWiFi)
+        defaults.set(Double(allTimeTotal), forKey: Key.allTimeTotal)
+        defaults.set(Double(planCapacity), forKey: Key.planCapacity)
+        defaults.set(Double(planUsed), forKey: Key.planUsed)
 
         if plan.isUnlimited {
             defaults.set(0, forKey: Key.planRemaining)
@@ -102,6 +119,9 @@ enum NetFlowWidgetBridge {
             Key.monthTotal,
             Key.monthCellular,
             Key.monthWiFi,
+            Key.allTimeTotal,
+            Key.planCapacity,
+            Key.planUsed,
             Key.planRemaining,
             Key.planUnlimited,
             Key.rateDown,
