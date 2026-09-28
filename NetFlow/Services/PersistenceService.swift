@@ -9,35 +9,11 @@ struct PersistencePayload: Codable {
 }
 
 struct PersistenceService {
-    static let appGroupIdentifier = "group.com.duyhoang.netflow"
-    private static let dataFileName = "netflow-data.json"
-
-    private var legacyURL: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(Self.dataFileName)
-    }
-
-    private var sharedURL: URL? {
-        FileManager.default
-            .containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupIdentifier)?
-            .appendingPathComponent(Self.dataFileName)
-    }
-
     private var url: URL {
-        sharedURL ?? legacyURL
-    }
-
-    private func migrateLegacyDataIfNeeded() {
-        guard let sharedURL,
-              !FileManager.default.fileExists(atPath: sharedURL.path),
-              FileManager.default.fileExists(atPath: legacyURL.path) else {
-            return
-        }
-        try? FileManager.default.copyItem(at: legacyURL, to: sharedURL)
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("netflow-data.json")
     }
 
     func load() -> PersistencePayload {
-        migrateLegacyDataIfNeeded()
         guard let data = try? Data(contentsOf: url) else {
             return PersistencePayload(settings: AppSettings(), plan: DataPlan(), records: [], alerts: [])
         }
