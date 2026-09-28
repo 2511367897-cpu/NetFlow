@@ -47,6 +47,10 @@ final class AppStore: ObservableObject {
         }
         hasStarted = true
 
+        if #available(iOS 16.2, *) {
+            await LegacyLiveActivityCleanup.endExistingActivities()
+        }
+
         networkContext.requestAccessAndRefresh()
         _ = await notificationService.requestAuthorization()
         await refreshContext()
@@ -91,13 +95,6 @@ final class AppStore: ObservableObject {
         let alertTriggered = alerts.count != alertCountBefore
         save(forcePersistence: cycleChanged || alertTriggered)
 
-        if #available(iOS 16.2, *) {
-            await NetFlowLiveActivityManager.shared.startOrUpdate(
-                records: dailyRecords,
-                plan: plan,
-                rate: currentRate
-            )
-        }
     }
 
     func refreshContext() async {
@@ -325,15 +322,6 @@ final class AppStore: ObservableObject {
         NetFlowWidgetBridge.resetSharedState()
         save()
 
-        if #available(iOS 16.2, *) {
-            Task { @MainActor in
-                await NetFlowLiveActivityManager.shared.updateExisting(
-                    records: dailyRecords,
-                    plan: plan,
-                    rate: currentRate
-                )
-            }
-        }
     }
 
     private func portion(_ value: UInt64, fraction: Double) -> UInt64 {
