@@ -35,6 +35,29 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(store.dailyRecords.first(where: { $0.date == date(2026, 1, 11) })?.totalBytes, 250)
     }
 
+    func testMergeSplitsMultiDayGapProportionallyAndPreservesTotal() {
+        let store = AppStore()
+        store.dailyRecords = []
+
+        store.merge(
+            delta: NetworkDelta(
+                wifiReceived: 480,
+                wifiSent: 0,
+                cellularReceived: 0,
+                cellularSent: 0,
+                isValid: true
+            ),
+            from: date(2026, 1, 10, 12),
+            to: date(2026, 1, 12, 12)
+        )
+
+        XCTAssertEqual(store.dailyRecords.reduce(UInt64(0)) { $0 &+ $1.totalBytes }, 480)
+        XCTAssertEqual(store.dailyRecords.first(where: { $0.date == date(2026, 1, 10) })?.totalBytes, 120)
+        XCTAssertEqual(store.dailyRecords.first(where: { $0.date == date(2026, 1, 11) })?.totalBytes, 240)
+        XCTAssertEqual(store.dailyRecords.first(where: { $0.date == date(2026, 1, 12) })?.totalBytes, 120)
+        XCTAssertTrue(store.dailyRecords.allSatisfy(\.isEstimated))
+    }
+
     func testPlanUsageIgnoresManualUsageForAClosedCycle() {
         let store = AppStore()
         store.plan.cycleType = .daily
