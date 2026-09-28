@@ -15,6 +15,7 @@ targets:
       - path: NetFlow
         excludes:
           - Preview
+      - path: Shared
     resources:
       - path: NetFlow/Resources/Assets.xcassets
       - path: NetFlow/Resources/en.lproj
@@ -30,8 +31,8 @@ targets:
         SWIFT_VERSION: 5.0
         SWIFT_STRICT_CONCURRENCY: minimal
         CODE_SIGN_ENTITLEMENTS: NetFlow/NetFlow.entitlements
-        MARKETING_VERSION: 4.2.1
-        CURRENT_PROJECT_VERSION: 30
+        MARKETING_VERSION: 4.2.2
+        CURRENT_PROJECT_VERSION: 31
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
@@ -46,6 +47,7 @@ targets:
         excludes:
           - Info.plist
           - NetFlowWidget.entitlements
+      - path: Shared
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.duyhoang.netflow.widget
