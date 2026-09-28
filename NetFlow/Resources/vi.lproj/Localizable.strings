@@ -107,9 +107,7 @@
 "cap_vpn_detail" = "Phát hiện giao diện đường hầm và trạng thái kết nối khi hệ thống cho phép.";
 "cap_widgets" = "Widget màn hình chính";
 "cap_widgets_detail" = "Chỉ khả dụng khi IPA có Widget Extension được ký hợp lệ.";
-"cap_live_activities" = "Live Activities";
-"cap_live_activities_detail" = "Cần ActivityKit, cấu hình Info.plist và chữ ký phù hợp.";
-"capability_signing_note" = "Một IPA có thể tự thích nghi theo khả năng thực tế, nhưng không thể tự tạo thêm entitlement sau khi đã ký. TrollStore hoặc chứng chỉ phù hợp có thể giúp IPA giữ được nhiều quyền hơn LiveContainer.";
+"capability_signing_note" = "Widget tự đọc bộ đếm giao diện mạng. iOS quyết định thời điểm làm mới và không bảo đảm đúng mỗi năm phút.";
 
 "notification_usage_title" = "Cảnh báo dung lượng";
 
