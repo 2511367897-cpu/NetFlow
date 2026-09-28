@@ -48,4 +48,5 @@ jobs:
             dist/NetFlow.ipa
             dist/NetFlow.zip
             dist/SHA256.txt
+            NetFlow.xcodeproj/project.pbxproj
           retention-days: 7
