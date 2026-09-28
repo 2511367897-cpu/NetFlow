@@ -666,6 +666,7 @@ struct NetFlowLiveActivity: Widget {
             .padding(.vertical, 12)
             .activityBackgroundTint(Color(uiColor: .secondarySystemBackground))
             .activitySystemActionForegroundColor(.primary)
+            .widgetURL(URL(string: "netflow://open"))
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
