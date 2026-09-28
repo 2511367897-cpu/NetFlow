@@ -1,10 +1,7 @@
 name: Final Live Activity IPA
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/final-liveactivity-build.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
