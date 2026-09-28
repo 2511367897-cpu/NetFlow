@@ -288,6 +288,7 @@ final class AppStore: ObservableObject {
         currentRate = .zero
         tracker.resetBaseline()
         NetworkSnapshotCache.clear()
+        NetFlowWidgetBridge.resetSharedState()
         networkContext.setLocale(settings.appLanguage.locale)
         _ = normalizePlanCycle(now: Date())
         save()
@@ -299,18 +300,19 @@ final class AppStore: ObservableObject {
         liveSnapshot = .zero
         currentRate = .zero
         plan.manualUsedBytes = 0
+        plan.carriedBytes = 0
         plan.triggeredAlertIDs.removeAll()
         tracker.resetBaseline()
         NetworkSnapshotCache.clear()
+        NetFlowWidgetBridge.resetSharedState()
         save()
 
         if #available(iOS 16.2, *) {
             Task { @MainActor in
-                await NetFlowLiveActivityManager.shared.startOrUpdate(
+                await NetFlowLiveActivityManager.shared.updateExisting(
                     records: dailyRecords,
                     plan: plan,
-                    rate: currentRate,
-                    force: true
+                    rate: currentRate
                 )
             }
         }
