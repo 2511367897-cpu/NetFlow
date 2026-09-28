@@ -92,6 +92,39 @@ enum NetFlowWidgetBridge {
         }
     }
 
+    static func resetSharedState() {
+        guard let defaults else { return }
+
+        let keys = [
+            Key.todayTotal,
+            Key.todayCellular,
+            Key.todayWiFi,
+            Key.monthTotal,
+            Key.monthCellular,
+            Key.monthWiFi,
+            Key.planRemaining,
+            Key.planUnlimited,
+            Key.rateDown,
+            Key.rateUp,
+            Key.updatedAt,
+            Key.rawWiFiReceived,
+            Key.rawWiFiSent,
+            Key.rawCellularReceived,
+            Key.rawCellularSent,
+            Key.rawTimestamp,
+            Key.rawAvailable,
+            Key.dayKey,
+            Key.monthKey,
+            Key.lastReloadRequest
+        ]
+
+        for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+
+        WidgetCenter.shared.reloadTimelines(ofKind: widgetKind)
+    }
+
     private static func dayKey(for date: Date) -> String {
         let components = Calendar.current.dateComponents([.year, .month, .day], from: date)
         return "\(components.year ?? 0)-\(components.month ?? 0)-\(components.day ?? 0)"
