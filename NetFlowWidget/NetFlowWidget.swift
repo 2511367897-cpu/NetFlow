@@ -398,6 +398,26 @@ private struct NetFlowWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: NetFlowEntry
 
+    private var planProgress: Double {
+        guard !entry.snapshot.planUnlimited,
+              entry.snapshot.planCapacity > 0 else {
+            return 0
+        }
+
+        return min(
+            max(
+                Double(entry.snapshot.planUsed) /
+                Double(entry.snapshot.planCapacity),
+                0
+            ),
+            1
+        )
+    }
+
+    private var planPercent: Int {
+        Int((planProgress * 100).rounded())
+    }
+
     var body: some View {
         Group {
             switch family {
@@ -426,42 +446,73 @@ private struct NetFlowWidgetView: View {
                 refreshButton
             }
 
-            Spacer(minLength: 1)
-
-            Text("今日")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            Text(Format.bytes(entry.snapshot.todayTotal))
-                .font(.system(size: 25, weight: .bold, design: .rounded))
-                .minimumScaleFactor(0.58)
-                .lineLimit(1)
-
-            HStack(spacing: 8) {
-                Label(Format.bytes(entry.snapshot.todayCellular), systemImage: "antenna.radiowaves.left.and.right")
-                Label(Format.bytes(entry.snapshot.todayWiFi), systemImage: "wifi")
+            HStack(spacing: 10) {
+                compactMetric("今日", entry.snapshot.todayTotal)
+                compactMetric("本月", entry.snapshot.monthTotal)
             }
-            .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.62)
+
+            HStack {
+                Text("累计")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(Format.bytes(entry.snapshot.allTimeTotal))
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
 
             Divider()
 
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("本月")
+            if entry.snapshot.planUnlimited {
+                HStack {
+                    Label("套餐", systemImage: "simcard.2.fill")
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
-                    Text(Format.bytes(entry.snapshot.monthTotal))
-                        .font(.caption.weight(.bold))
+                    Spacer()
+                    Text("不限量")
+                        .font(.system(size: 10, weight: .bold))
+                }
+            } else if entry.snapshot.planCapacity > 0 {
+                HStack {
+                    Text("套餐已用")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(planPercent)%")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(planProgress >= 0.9 ? .red : .indigo)
                 }
 
-                Spacer()
+                ProgressView(value: planProgress)
+                    .tint(planProgress >= 0.9 ? .red : .indigo)
 
-                Text(Format.time(entry.snapshot.updatedAt))
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
+                HStack {
+                    Text(
+                        Format.bytes(entry.snapshot.planUsed)
+                        + " / "
+                        + Format.bytes(entry.snapshot.planCapacity)
+                    )
+                    .font(.system(size: 9, weight: .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+
+                    Spacer()
+
+                    Text(Format.time(entry.snapshot.updatedAt))
+                        .font(.system(size: 8))
+                        .foregroundStyle(.tertiary)
+                }
+            } else {
+                HStack {
+                    Text("套餐信息需打开 App 同步")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(Format.time(entry.snapshot.updatedAt))
+                        .font(.system(size: 8))
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .padding()
@@ -469,76 +520,96 @@ private struct NetFlowWidgetView: View {
     }
 
     private var medium: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Label("今日流量", systemImage: "chart.line.uptrend.xyaxis")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.indigo)
-                    Spacer()
-                }
+        VStack(alignment: .leading, spacing: 9) {
+            HStack {
+                Label("NetFlow 流量", systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.indigo)
 
-                Text(Format.bytes(entry.snapshot.todayTotal))
-                    .font(.system(size: 27, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-
-                metricRow(
-                    "蜂窝",
-                    Format.bytes(entry.snapshot.todayCellular),
-                    "antenna.radiowaves.left.and.right",
-                    .orange
-                )
-                metricRow(
-                    "Wi‑Fi",
-                    Format.bytes(entry.snapshot.todayWiFi),
-                    "wifi",
-                    .cyan
-                )
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 7) {
-                HStack {
-                    Text("本月")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    refreshButton
-                }
-
-                Text(Format.bytes(entry.snapshot.monthTotal))
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.65)
-
-                HStack(spacing: 8) {
-                    Label(Format.rate(entry.snapshot.down), systemImage: "arrow.down")
-                        .foregroundStyle(.blue)
-                    Label(Format.rate(entry.snapshot.up), systemImage: "arrow.up")
-                        .foregroundStyle(.green)
-                }
-                .font(.system(size: 10, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
-
-                Text(
-                    entry.snapshot.planUnlimited
-                    ? "套餐：不限量"
-                    : "剩余 " + Format.bytes(entry.snapshot.planRemaining)
-                )
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-                Spacer(minLength: 0)
+                Spacer()
 
                 Text("更新 " + Format.time(entry.snapshot.updatedAt))
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
+
+                refreshButton
+            }
+
+            HStack(spacing: 8) {
+                mediumMetric("今日", entry.snapshot.todayTotal, "sun.max.fill", .orange)
+                mediumMetric("本月", entry.snapshot.monthTotal, "calendar", .indigo)
+                mediumMetric("累计", entry.snapshot.allTimeTotal, "sum", .cyan)
+            }
+
+            Divider()
+
+            if entry.snapshot.planUnlimited {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("套餐")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+                        Text("不限量")
+                            .font(.headline.weight(.bold))
+                    }
+
+                    Spacer()
+
+                    speedPair
+                }
+            } else if entry.snapshot.planCapacity > 0 {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("套餐使用")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.secondary)
+
+                        Text(
+                            Format.bytes(entry.snapshot.planUsed)
+                            + " / "
+                            + Format.bytes(entry.snapshot.planCapacity)
+                        )
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+
+                        Text("剩余 " + Format.bytes(entry.snapshot.planRemaining))
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Text("\(planPercent)%")
+                        .font(.system(size: 22, weight: .bold, design: .rounded))
+                        .foregroundStyle(planProgress >= 0.9 ? .red : .indigo)
+                }
+
+                ProgressView(value: planProgress)
+                    .tint(planProgress >= 0.9 ? .red : .indigo)
+
+                HStack {
+                    speedPair
+                    Spacer()
+                    Text(
+                        "蜂窝 "
+                        + Format.bytes(entry.snapshot.monthCellular)
+                        + " · Wi‑Fi "
+                        + Format.bytes(entry.snapshot.monthWiFi)
+                    )
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                }
+            } else {
+                HStack {
+                    Text("套餐信息需打开 NetFlow 同步")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    speedPair
+                }
             }
         }
         .padding()
@@ -547,21 +618,88 @@ private struct NetFlowWidgetView: View {
 
     private var accessoryRectangular: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("今日 " + Format.bytes(entry.snapshot.todayTotal))
-                .font(.headline)
-                .lineLimit(1)
-
             Text(
-                "蜂窝 " + Format.bytes(entry.snapshot.todayCellular)
-                + " · Wi‑Fi " + Format.bytes(entry.snapshot.todayWiFi)
+                "今日 " + Format.bytes(entry.snapshot.todayTotal)
+                + " · 本月 " + Format.bytes(entry.snapshot.monthTotal)
             )
-            .font(.caption2)
+            .font(.headline)
             .lineLimit(1)
+            .minimumScaleFactor(0.7)
+
+            if entry.snapshot.planUnlimited {
+                Text("累计 " + Format.bytes(entry.snapshot.allTimeTotal) + " · 套餐不限量")
+                    .font(.caption2)
+                    .lineLimit(1)
+            } else if entry.snapshot.planCapacity > 0 {
+                Text(
+                    "套餐 " + String(planPercent) + "%"
+                    + " · 剩余 " + Format.bytes(entry.snapshot.planRemaining)
+                )
+                .font(.caption2)
+                .lineLimit(1)
+            } else {
+                Text("累计 " + Format.bytes(entry.snapshot.allTimeTotal))
+                    .font(.caption2)
+                    .lineLimit(1)
+            }
         }
     }
 
     private var accessoryInline: some View {
-        Text("今日流量 " + Format.bytes(entry.snapshot.todayTotal))
+        if entry.snapshot.planUnlimited {
+            Text("今日 " + Format.bytes(entry.snapshot.todayTotal) + " · 不限量")
+        } else if entry.snapshot.planCapacity > 0 {
+            Text(
+                "今日 " + Format.bytes(entry.snapshot.todayTotal)
+                + " · 套餐 " + String(planPercent) + "%"
+            )
+        } else {
+            Text("今日 " + Format.bytes(entry.snapshot.todayTotal))
+        }
+    }
+
+    private func compactMetric(_ title: String, _ value: UInt64) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title)
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+            Text(Format.bytes(value))
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func mediumMetric(
+        _ title: String,
+        _ value: UInt64,
+        _ icon: String,
+        _ color: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(color)
+
+            Text(Format.bytes(value))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var speedPair: some View {
+        HStack(spacing: 8) {
+            Label(Format.rate(entry.snapshot.down), systemImage: "arrow.down")
+                .foregroundStyle(.blue)
+            Label(Format.rate(entry.snapshot.up), systemImage: "arrow.up")
+                .foregroundStyle(.green)
+        }
+        .font(.system(size: 9, weight: .semibold))
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
     }
 
     @ViewBuilder
