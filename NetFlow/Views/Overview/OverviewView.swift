@@ -277,11 +277,17 @@ struct OverviewView: View {
             }
 
             if recentRecords.isEmpty {
-                ContentUnavailableView(
-                    "暂无流量记录",
-                    systemImage: "chart.xyaxis.line",
-                    description: Text("使用一段时间后这里会显示每日趋势")
-                )
+                VStack(spacing: 8) {
+                    Image(systemName: "chart.xyaxis.line")
+                        .font(.system(size: 28, weight: .light))
+                        .foregroundStyle(.secondary)
+                    Text("暂无流量记录")
+                        .font(.headline)
+                    Text("使用一段时间后这里会显示每日趋势")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
                 .frame(height: 170)
             } else {
                 Chart(recentRecords) { record in
