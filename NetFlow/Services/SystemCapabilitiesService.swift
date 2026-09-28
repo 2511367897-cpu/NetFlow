@@ -58,6 +58,11 @@ final class SystemCapabilitiesService: ObservableObject {
             try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)
         }?.contains(where: { $0.pathExtension == "appex" && $0.lastPathComponent.localizedCaseInsensitiveContains("widget") }) == true
 
+        let widgetState: CapabilityState = {
+            guard hasWidgetExtension else { return .unavailable }
+            return NetFlowWidgetBridge.isSharedContainerAvailable ? .available : .limited
+        }()
+
         var items = [
             CapabilityItem(id: "usage", titleKey: "cap_usage", detailKey: "cap_usage_detail", systemImage: "chart.xyaxis.line", state: .available),
             CapabilityItem(id: "reports", titleKey: "cap_reports", detailKey: "cap_reports_detail", systemImage: "doc.richtext", state: .available),
@@ -67,7 +72,7 @@ final class SystemCapabilitiesService: ObservableObject {
             CapabilityItem(id: "ssid", titleKey: "cap_ssid", detailKey: "cap_ssid_detail", systemImage: "wifi", state: wifiName),
             CapabilityItem(id: "public_ip", titleKey: "cap_public_ip", detailKey: "cap_public_ip_detail", systemImage: "network", state: publicIP),
             CapabilityItem(id: "vpn", titleKey: "cap_vpn", detailKey: "cap_vpn_detail", systemImage: "lock.shield", state: vpn),
-            CapabilityItem(id: "widgets", titleKey: "cap_widgets", detailKey: "cap_widgets_detail", systemImage: "square.grid.2x2", state: hasWidgetExtension ? .available : .unavailable),
+            CapabilityItem(id: "widgets", titleKey: "cap_widgets", detailKey: "cap_widgets_detail", systemImage: "square.grid.2x2", state: widgetState),
             CapabilityItem(id: "live_activities", titleKey: "cap_live_activities", detailKey: "cap_live_activities_detail", systemImage: "waveform.path.ecg.rectangle", state: liveActivities)
         ]
 
@@ -75,7 +80,7 @@ final class SystemCapabilitiesService: ObservableObject {
         let enhancedCount = items.filter { $0.state == .available }.count
         let environmentTitle: String
         let environmentDetail: String
-        if hasWidgetExtension && liveActivities == .available && notifications == .available {
+        if widgetState == .available && liveActivities == .available && notifications == .available {
             environmentTitle = "environment_full"
             environmentDetail = "environment_full_detail"
         } else if enhancedCount >= 6 {
