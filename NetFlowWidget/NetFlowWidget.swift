@@ -4,20 +4,93 @@ import AppIntents
 import Darwin
 
 private let netFlowWidgetKind = "NetFlowUsageWidget"
-private let configuredWidgetKind = "NetFlowConfiguredUsageWidget"
+// A fresh kind avoids migrating the broken AppIntentConfiguration instances.
+private let configuredWidgetKind = "NetFlowPlanWidgetV2"
 
-struct NetFlowWidgetConfigurationIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource = "NetFlow 套餐设置"
-    static var description = IntentDescription("小组件独立保存套餐设置和流量记录。重置日支持 1–28 日。")
+private enum WidgetPlanSettings {
+    private static let defaults = UserDefaults.standard
+    private static let capacityKey = "self.plan.capacityGB"
+    private static let resetDayKey = "self.plan.resetDay"
+    private static let unlimitedKey = "self.plan.unlimited"
+    private static let configuredKey = "self.plan.configured"
+    private static let editingKey = "self.plan.editing"
 
-    @Parameter(title: "套餐总量（GB）", default: 30.0)
-    var planCapacityGB: Double
+    static var capacityGB: Int { max(1, min(100_000, defaults.object(forKey: capacityKey) as? Int ?? 30)) }
+    static var resetDay: Int { max(1, min(28, defaults.object(forKey: resetDayKey) as? Int ?? 1)) }
+    static var unlimited: Bool { defaults.bool(forKey: unlimitedKey) }
+    static var configured: Bool { defaults.bool(forKey: configuredKey) }
+    static var editing: Bool { !configured || defaults.bool(forKey: editingKey) }
 
-    @Parameter(title: "每月重置日", default: 1)
-    var resetDay: Int
+    static func adjustCapacity(_ delta: Int) {
+        defaults.set(max(1, min(100_000, capacityGB + delta)), forKey: capacityKey)
+        reload()
+    }
 
-    @Parameter(title: "不限量套餐", default: false)
-    var unlimited: Bool
+    static func adjustResetDay(_ delta: Int) {
+        defaults.set(max(1, min(28, resetDay + delta)), forKey: resetDayKey)
+        reload()
+    }
+
+    static func toggleUnlimited() {
+        defaults.set(!unlimited, forKey: unlimitedKey)
+        reload()
+    }
+
+    static func toggleEditing() {
+        if editing {
+            defaults.set(true, forKey: configuredKey)
+            defaults.set(false, forKey: editingKey)
+        } else {
+            defaults.set(true, forKey: editingKey)
+        }
+        reload()
+    }
+
+    private static func reload() {
+        WidgetCenter.shared.reloadTimelines(ofKind: configuredWidgetKind)
+    }
+}
+
+struct AdjustWidgetCapacityIntent: AppIntent {
+    static var title: LocalizedStringResource = "调整套餐总量"
+    static var openAppWhenRun = false
+    @Parameter(title: "增减 GB") var delta: Int
+    init() { self.delta = 0 }
+    init(delta: Int) { self.delta = delta }
+    func perform() async throws -> some IntentResult {
+        WidgetPlanSettings.adjustCapacity(delta)
+        return .result()
+    }
+}
+
+struct AdjustWidgetResetDayIntent: AppIntent {
+    static var title: LocalizedStringResource = "调整重置日"
+    static var openAppWhenRun = false
+    @Parameter(title: "增减天数") var delta: Int
+    init() { self.delta = 0 }
+    init(delta: Int) { self.delta = delta }
+    func perform() async throws -> some IntentResult {
+        WidgetPlanSettings.adjustResetDay(delta)
+        return .result()
+    }
+}
+
+struct ToggleWidgetUnlimitedIntent: AppIntent {
+    static var title: LocalizedStringResource = "切换不限量套餐"
+    static var openAppWhenRun = false
+    func perform() async throws -> some IntentResult {
+        WidgetPlanSettings.toggleUnlimited()
+        return .result()
+    }
+}
+
+struct ToggleWidgetEditingIntent: AppIntent {
+    static var title: LocalizedStringResource = "编辑或保存套餐"
+    static var openAppWhenRun = false
+    func perform() async throws -> some IntentResult {
+        WidgetPlanSettings.toggleEditing()
+        return .result()
+    }
 }
 
 private struct RawCounters {
@@ -118,6 +191,7 @@ private struct UsageSnapshot {
     var planUnlimited = false
     var resetDay = 1
     var planConfigured = true
+    var isEditing = false
 
     var down: Double = 0
     var up: Double = 0
@@ -215,16 +289,6 @@ private enum WidgetTrafficStore {
         defaults.set(currentTimestamp, forKey: Key.rawTimestamp)
         defaults.set(true, forKey: Key.rawAvailable)
         defaults.set(currentTimestamp, forKey: Key.updatedAt)
-    }
-
-    static func sampleAndLoad(
-        configuration: NetFlowWidgetConfigurationIntent,
-        now: Date = Date()
-    ) -> UsageSnapshot {
-        sampleAndLoad(planCapacityGB: configuration.planCapacityGB,
-                      resetDay: configuration.resetDay,
-                      unlimited: configuration.unlimited,
-                      now: now)
     }
 
     static func sampleAndLoad(
@@ -445,7 +509,9 @@ private struct NetFlowEntry: TimelineEntry {
     let snapshot: UsageSnapshot
 }
 
-private struct Provider: AppIntentTimelineProvider {
+private struct Provider: TimelineProvider {
+    let includesPlan: Bool
+
     func placeholder(in context: Context) -> NetFlowEntry {
         NetFlowEntry(
             date: .now,
@@ -457,51 +523,18 @@ private struct Provider: AppIntentTimelineProvider {
                 monthCellular: 0,
                 monthWiFi: 0,
                 allTimeTotal: 0,
-                planCapacity: 30_000_000_000,
+                planCapacity: 0,
                 planUsed: 0,
-                planRemaining: 30_000_000_000,
+                planRemaining: 0,
                 planUnlimited: false,
                 resetDay: 1,
+                planConfigured: includesPlan,
                 down: 0,
                 up: 0,
                 updatedAt: .now,
                 isPreview: true
             )
         )
-    }
-
-    func snapshot(
-        for configuration: NetFlowWidgetConfigurationIntent,
-        in context: Context
-    ) async -> NetFlowEntry {
-        if context.isPreview {
-            return placeholder(in: context)
-        }
-        return NetFlowEntry(
-            date: .now,
-            snapshot: WidgetTrafficStore.sampleAndLoad(configuration: configuration)
-        )
-    }
-
-    func timeline(
-        for configuration: NetFlowWidgetConfigurationIntent,
-        in context: Context
-    ) async -> Timeline<NetFlowEntry> {
-        let now = Date()
-        let snapshot = WidgetTrafficStore.sampleAndLoad(configuration: configuration, now: now)
-        let entry = NetFlowEntry(date: now, snapshot: snapshot)
-        return Timeline(entries: [entry], policy: .after(now.addingTimeInterval(5 * 60)))
-    }
-}
-
-// The 4.2.8 widget used StaticConfiguration with netFlowWidgetKind. Keeping
-// that kind static lets iOS restore existing instances without an intent.
-private struct LegacyProvider: TimelineProvider {
-    func placeholder(in context: Context) -> NetFlowEntry {
-        let original = Provider().placeholder(in: context)
-        var snapshot = original.snapshot
-        snapshot.planConfigured = false
-        return NetFlowEntry(date: original.date, snapshot: snapshot)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (NetFlowEntry) -> Void) {
@@ -516,9 +549,13 @@ private struct LegacyProvider: TimelineProvider {
 
     private func entry(now: Date) -> NetFlowEntry {
         var snapshot = WidgetTrafficStore.sampleAndLoad(
-            planCapacityGB: 0, resetDay: 1, unlimited: true, now: now
+            planCapacityGB: includesPlan ? Double(WidgetPlanSettings.capacityGB) : 0,
+            resetDay: includesPlan ? WidgetPlanSettings.resetDay : 1,
+            unlimited: includesPlan ? WidgetPlanSettings.unlimited : true,
+            now: now
         )
-        snapshot.planConfigured = false
+        snapshot.planConfigured = includesPlan && WidgetPlanSettings.configured
+        snapshot.isEditing = includesPlan && WidgetPlanSettings.editing
         return NetFlowEntry(date: now, snapshot: snapshot)
     }
 }
@@ -582,6 +619,16 @@ private struct NetFlowWidgetView: View {
     }
 
     private var small: some View {
+        Group {
+            if entry.snapshot.isEditing {
+                smallSettings
+            } else {
+                smallOverview
+            }
+        }
+    }
+
+    private var smallOverview: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Label("NetFlow", systemImage: "waveform.path.ecg")
@@ -589,6 +636,7 @@ private struct NetFlowWidgetView: View {
                     .foregroundStyle(.indigo)
                 Spacer()
                 refreshButton
+                if entry.snapshot.planConfigured { editButton }
             }
 
             HStack(spacing: 10) {
@@ -608,7 +656,7 @@ private struct NetFlowWidgetView: View {
             Divider()
 
             if entry.snapshot.isPreview {
-                Text(entry.snapshot.planConfigured ? "等待下次采样；长按可设置套餐" : "等待下次采样")
+                Text(entry.snapshot.planConfigured ? "等待下次采样" : "等待下次采样")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
             } else if !entry.snapshot.planConfigured {
@@ -655,6 +703,16 @@ private struct NetFlowWidgetView: View {
     }
 
     private var medium: some View {
+        Group {
+            if entry.snapshot.isEditing {
+                mediumSettings
+            } else {
+                mediumOverview
+            }
+        }
+    }
+
+    private var mediumOverview: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack {
                 Label("NetFlow 流量", systemImage: "chart.line.uptrend.xyaxis")
@@ -665,6 +723,7 @@ private struct NetFlowWidgetView: View {
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
                 refreshButton
+                if entry.snapshot.planConfigured { editButton }
             }
 
             HStack(spacing: 8) {
@@ -680,7 +739,9 @@ private struct NetFlowWidgetView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("等待下次采样")
                             .font(.caption.weight(.semibold))
-                        Text("长按小组件 → 编辑小组件，可设置套餐总量和重置日")
+                        Text(entry.snapshot.planConfigured
+                             ? "添加后点右上角设置按钮配置套餐"
+                             : "套餐设置请添加“NetFlow 套餐”小组件")
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)
                     }
@@ -748,6 +809,115 @@ private struct NetFlowWidgetView: View {
         .widgetBackground()
     }
 
+    private var mediumSettings: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Text("设置蜂窝套餐")
+                    .font(.caption.weight(.bold))
+                Spacer()
+                Button(intent: ToggleWidgetEditingIntent()) {
+                    Text("完成").font(.caption.weight(.bold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.indigo)
+            }
+            HStack(spacing: 7) {
+                Text("总量").font(.caption2).frame(width: 30, alignment: .leading)
+                capacityButton(-10, "-10")
+                capacityButton(-1, "−")
+                Text("\(WidgetPlanSettings.capacityGB) GB")
+                    .font(.caption.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                    .lineLimit(1)
+                capacityButton(1, "+")
+                capacityButton(10, "+10")
+            }
+            HStack(spacing: 9) {
+                Text("每月重置").font(.caption2)
+                resetButton(-1, "−")
+                Text("\(WidgetPlanSettings.resetDay) 日").font(.caption.weight(.bold))
+                resetButton(1, "+")
+                Spacer()
+                Button(intent: ToggleWidgetUnlimitedIntent()) {
+                    Label(WidgetPlanSettings.unlimited ? "不限量 ✓" : "不限量", systemImage: "infinity")
+                        .font(.caption2)
+                }
+                .buttonStyle(.plain)
+            }
+            Text("点击完成保存；套餐用量只计算蜂窝流量")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+        }
+        .padding()
+        .widgetBackground()
+    }
+
+    private var smallSettings: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text("套餐设置").font(.caption.weight(.bold))
+                Spacer()
+                Button(intent: ToggleWidgetEditingIntent()) {
+                    Text("完成").font(.caption.weight(.bold))
+                }
+                .buttonStyle(.plain)
+            }
+            HStack {
+                Text("\(WidgetPlanSettings.capacityGB) GB")
+                    .font(.caption.weight(.bold))
+                Spacer()
+                capacityButton(-1, "−")
+                capacityButton(1, "+")
+            }
+            HStack {
+                Text("重置 \(WidgetPlanSettings.resetDay) 日").font(.caption2)
+                Spacer()
+                resetButton(-1, "−")
+                resetButton(1, "+")
+            }
+            Button(intent: ToggleWidgetUnlimitedIntent()) {
+                Text(WidgetPlanSettings.unlimited ? "不限量 ✓" : "不限量")
+                    .font(.caption2)
+            }
+            .buttonStyle(.plain)
+            Text("总量每次 ±1 GB").font(.system(size: 9)).foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .widgetBackground()
+    }
+
+    private func capacityButton(_ delta: Int, _ title: String) -> some View {
+        Button(intent: AdjustWidgetCapacityIntent(delta: delta)) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .frame(minWidth: 20, minHeight: 22)
+                .background(Color.indigo.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(delta > 0 ? "套餐增加 \(delta) GB" : "套餐减少 \(-delta) GB")
+    }
+
+    private func resetButton(_ delta: Int, _ title: String) -> some View {
+        Button(intent: AdjustWidgetResetDayIntent(delta: delta)) {
+            Text(title)
+                .font(.caption.weight(.bold))
+                .frame(minWidth: 20, minHeight: 22)
+                .background(Color.indigo.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(delta > 0 ? "重置日加一天" : "重置日减一天")
+    }
+
+    private var editButton: some View {
+        Button(intent: ToggleWidgetEditingIntent()) {
+            Image(systemName: "slider.horizontal.3")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.indigo)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("设置套餐")
+    }
+
     private var accessoryRectangular: some View {
         VStack(alignment: .leading, spacing: 2) {
             if entry.snapshot.isPreview {
@@ -762,7 +932,9 @@ private struct NetFlowWidgetView: View {
                     .minimumScaleFactor(0.7)
             }
 
-            if entry.snapshot.isPreview {
+            if entry.snapshot.isEditing {
+                Text("请添加中号组件设置套餐").font(.caption2)
+            } else if entry.snapshot.isPreview {
                 EmptyView()
             } else if !entry.snapshot.planConfigured {
                 Text("累计 " + trafficText(entry.snapshot.allTimeTotal))
@@ -778,7 +950,9 @@ private struct NetFlowWidgetView: View {
     }
 
     private var accessoryInline: some View {
-        if entry.snapshot.isPreview {
+        if entry.snapshot.isEditing {
+            Text("NetFlow · 请用中号组件设套餐")
+        } else if entry.snapshot.isPreview {
             Text("NetFlow · 等待采样")
         } else if !entry.snapshot.planConfigured {
             Text("今日 " + trafficText(entry.snapshot.todayTotal) + " · 本月 " + trafficText(entry.snapshot.monthTotal))
@@ -862,7 +1036,7 @@ struct NetFlowUsageWidget: Widget {
     let kind = netFlowWidgetKind
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: LegacyProvider()) { entry in
+        StaticConfiguration(kind: kind, provider: Provider(includesPlan: false)) { entry in
             NetFlowWidgetView(entry: entry)
         }
         .configurationDisplayName("NetFlow 流量")
@@ -880,15 +1054,11 @@ struct NetFlowConfiguredWidget: Widget {
     let kind = configuredWidgetKind
 
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(
-            kind: kind,
-            intent: NetFlowWidgetConfigurationIntent.self,
-            provider: Provider()
-        ) { entry in
+        StaticConfiguration(kind: kind, provider: Provider(includesPlan: true)) { entry in
             NetFlowWidgetView(entry: entry)
         }
         .configurationDisplayName("NetFlow 套餐")
-        .description("独立统计流量并设置套餐；约每 5 分钟请求更新，实际由 iOS 调度。")
+        .description("添加后直接用小组件按钮设置套餐；约每 5 分钟请求更新，实际由 iOS 调度。")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline])
     }
 }
