@@ -11,7 +11,7 @@ final class SystemCapabilitiesService: ObservableObject {
     func refresh(context: NetworkContextService) async {
         let notificationSettings = await UNUserNotificationCenter.current().notificationSettings()
         let backgroundState = UIApplication.shared.backgroundRefreshStatus
-        let locationState = CLLocationManager().authorizationStatus
+        _ = CLLocationManager().authorizationStatus
 
         let notifications: CapabilityState = {
             switch notificationSettings.authorizationStatus {
@@ -30,14 +30,8 @@ final class SystemCapabilitiesService: ObservableObject {
             }
         }()
 
-        let location: CapabilityState = {
-            switch locationState {
-            case .authorizedAlways, .authorizedWhenInUse: return .available
-            case .notDetermined: return .limited
-            case .denied, .restricted: return .unavailable
-            @unknown default: return .unknown
-            }
-        }()
+        // This traffic-focused build no longer requires location/weather permission.
+        let location: CapabilityState = .available
 
         let wifiName: CapabilityState = context.connection.isWiFiActive ? .available : .limited
 
