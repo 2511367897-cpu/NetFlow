@@ -3,11 +3,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 echo "[1/8] Swift parse"
-swiftc -parse $(find NetFlow NetFlowTests -name '*.swift' -print 2>/dev/null | sort)
+swiftc -parse $(find NetFlow NetFlowWidget Shared NetFlowTests -name '*.swift' -print 2>/dev/null | sort)
 echo "[2/8] Property lists"
-plutil -lint NetFlow/Info.plist NetFlow/NetFlow.entitlements
+plutil -lint NetFlow/Info.plist NetFlow/NetFlow.entitlements NetFlowWidget/Info.plist NetFlowWidget/NetFlowWidget.entitlements
 echo "[3/8] Localizations"
-plutil -lint NetFlow/Resources/en.lproj/Localizable.strings NetFlow/Resources/vi.lproj/Localizable.strings
+plutil -lint NetFlow/Resources/en.lproj/Localizable.strings NetFlow/Resources/vi.lproj/Localizable.strings NetFlow/Resources/zh.lproj/Localizable.strings
 echo "[4/8] App icon"
 test -s NetFlow/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
 if command -v sips >/dev/null 2>&1; then
@@ -28,7 +28,12 @@ echo "[5/8] Source membership"
 python3 - <<'PY'
 from pathlib import Path
 pbx=Path('NetFlow.xcodeproj/project.pbxproj').read_text()
-swift_files = list(Path('NetFlow').rglob('*.swift')) + list(Path('NetFlowTests').rglob('*.swift'))
+swift_files = (
+    list(Path('NetFlow').rglob('*.swift'))
+    + list(Path('NetFlowWidget').rglob('*.swift'))
+    + list(Path('Shared').rglob('*.swift'))
+    + list(Path('NetFlowTests').rglob('*.swift'))
+)
 missing=[str(p) for p in swift_files if p.name not in pbx]
 assert not missing, 'Swift files missing from project: '+str(missing)
 print('All Swift files referenced by project')
