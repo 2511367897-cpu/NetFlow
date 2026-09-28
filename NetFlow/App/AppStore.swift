@@ -277,12 +277,6 @@ final class AppStore: ObservableObject {
             }
         }
 
-        NetFlowWidgetBridge.publish(
-            records: dailyRecords,
-            plan: plan,
-            rate: currentRate,
-            snapshot: liveSnapshot
-        )
     }
 
     func makeBackup() throws -> URL {
@@ -303,7 +297,6 @@ final class AppStore: ObservableObject {
         currentRate = .zero
         tracker.resetBaseline()
         NetworkSnapshotCache.clear()
-        NetFlowWidgetBridge.resetSharedState()
         networkContext.setLocale(settings.appLanguage.locale)
         _ = normalizePlanCycle(now: Date())
         save()
@@ -319,7 +312,6 @@ final class AppStore: ObservableObject {
         plan.triggeredAlertIDs.removeAll()
         tracker.resetBaseline()
         NetworkSnapshotCache.clear()
-        NetFlowWidgetBridge.resetSharedState()
         save()
 
     }
