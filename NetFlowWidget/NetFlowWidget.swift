@@ -14,6 +14,9 @@ private enum SharedKey {
     static let monthTotal = "widget.month.total"
     static let monthCellular = "widget.month.cellular"
     static let monthWiFi = "widget.month.wifi"
+    static let allTimeTotal = "widget.alltime.total"
+    static let planCapacity = "widget.plan.capacity"
+    static let planUsed = "widget.plan.used"
     static let planRemaining = "widget.plan.remaining"
     static let planUnlimited = "widget.plan.unlimited"
     static let rateDown = "widget.rate.down"
@@ -86,6 +89,9 @@ private struct UsageSnapshot {
     var monthTotal: UInt64 = 0
     var monthCellular: UInt64 = 0
     var monthWiFi: UInt64 = 0
+    var allTimeTotal: UInt64 = 0
+    var planCapacity: UInt64 = 0
+    var planUsed: UInt64 = 0
     var planRemaining: UInt64 = 0
     var planUnlimited = false
     var down: Double = 0
@@ -137,6 +143,8 @@ private enum SharedTrafficStore {
                 add(totalDelta, to: SharedKey.monthTotal, defaults: defaults)
                 add(wifiDelta, to: SharedKey.monthWiFi, defaults: defaults)
                 add(cellularDelta, to: SharedKey.monthCellular, defaults: defaults)
+                add(totalDelta, to: SharedKey.allTimeTotal, defaults: defaults)
+                add(cellularDelta, to: SharedKey.planUsed, defaults: defaults)
 
                 if !defaults.bool(forKey: SharedKey.planUnlimited) {
                     let remaining = bytes(defaults.double(forKey: SharedKey.planRemaining))
@@ -205,6 +213,9 @@ private enum SharedTrafficStore {
             SharedKey.monthTotal,
             SharedKey.monthCellular,
             SharedKey.monthWiFi,
+            SharedKey.allTimeTotal,
+            SharedKey.planCapacity,
+            SharedKey.planUsed,
             SharedKey.planRemaining,
             SharedKey.rateDown,
             SharedKey.rateUp,
@@ -243,6 +254,9 @@ private enum SharedTrafficStore {
             monthTotal: bytes(defaults.double(forKey: SharedKey.monthTotal)),
             monthCellular: bytes(defaults.double(forKey: SharedKey.monthCellular)),
             monthWiFi: bytes(defaults.double(forKey: SharedKey.monthWiFi)),
+            allTimeTotal: bytes(defaults.double(forKey: SharedKey.allTimeTotal)),
+            planCapacity: bytes(defaults.double(forKey: SharedKey.planCapacity)),
+            planUsed: bytes(defaults.double(forKey: SharedKey.planUsed)),
             planRemaining: bytes(defaults.double(forKey: SharedKey.planRemaining)),
             planUnlimited: defaults.bool(forKey: SharedKey.planUnlimited),
             down: defaults.double(forKey: SharedKey.rateDown),
@@ -327,6 +341,9 @@ private struct Provider: TimelineProvider {
                 monthTotal: 18_600_000_000,
                 monthCellular: 11_400_000_000,
                 monthWiFi: 7_200_000_000,
+                allTimeTotal: 86_400_000_000,
+                planCapacity: 30_000_000_000,
+                planUsed: 11_400_000_000,
                 planRemaining: 18_600_000_000,
                 planUnlimited: false,
                 down: 2_400_000,
