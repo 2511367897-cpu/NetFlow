@@ -44,15 +44,27 @@
 	<array>
 		<string>en</string>
 		<string>vi</string>
+		<string>zh</string>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.duyhoang.netflow</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>netflow</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>4.2.0</string>
+	<string>4.2.1</string>
 	<key>CFBundleVersion</key>
-	<string>29</string>
+	<string>30</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
