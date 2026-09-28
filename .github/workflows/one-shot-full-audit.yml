@@ -1,4 +1,5 @@
 name: One Shot Full Audit 4.2.7
+# final retry with simulator ad-hoc signing
 
 on:
   push:
@@ -48,7 +49,6 @@ jobs:
                 -scheme NetFlow \
                 -configuration Debug \
                 -destination "platform=iOS Simulator,id=$DEVICE_UDID" \
-                CODE_SIGNING_ALLOWED=NO \
                 test >/tmp/xctest.log 2>&1
               TEST_STATUS=$?
             else
