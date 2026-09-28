@@ -22,7 +22,7 @@ final class NetworkInterfaceReader {
 
             if let rawData = item.ifa_data {
                 let data = rawData.assumingMemoryBound(to: if_data.self).pointee
-                if name.hasPrefix("en") {
+                if name == "en0" {
                     wifi.received &+= UInt64(data.ifi_ibytes)
                     wifi.sent &+= UInt64(data.ifi_obytes)
                 } else if name.hasPrefix("pdp_ip") {
@@ -106,15 +106,8 @@ final class NetworkContextService: NSObject, ObservableObject {
     }
 
     func requestAccessAndRefresh() {
-        switch locationManager.authorizationStatus {
-        case .notDetermined:
-            locationManager.requestWhenInUseAuthorization()
-        case .authorizedAlways, .authorizedWhenInUse:
-            locationManager.requestLocation()
-        default:
-            break
-        }
-
+        // NetFlow 的核心功能只需要网络接口信息。
+        // 不再为了天气自动申请定位权限，减少无关权限和后台开销。
         scheduleFastNetworkRefresh()
     }
 
@@ -122,16 +115,8 @@ final class NetworkContextService: NSObject, ObservableObject {
         refreshLocalNetworkDetails()
         refreshPublicIPInBackground()
 
-        if locationManager.authorizationStatus == .authorizedAlways ||
-            locationManager.authorizationStatus == .authorizedWhenInUse {
-            locationManager.requestLocation()
-        }
+        // 流量监控模式不主动刷新天气/定位，避免额外网络请求被计入流量。
 
-        if let currentLocation {
-            await updateWeather(for: currentLocation)
-        } else if weather.temperatureCelsius == nil {
-            await updateApproximateWeatherFromNetwork()
-        }
     }
 
     private func scheduleFastNetworkRefresh() {
