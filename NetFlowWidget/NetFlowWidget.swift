@@ -246,15 +246,23 @@ private enum SharedTrafficStore {
 
     private static func load(defaults: UserDefaults) -> UsageSnapshot {
         let timestamp = defaults.double(forKey: SharedKey.updatedAt)
+        let todayTotal = bytes(defaults.double(forKey: SharedKey.todayTotal))
+        let monthTotal = bytes(defaults.double(forKey: SharedKey.monthTotal))
+        let storedAllTime = bytes(defaults.double(forKey: SharedKey.allTimeTotal))
+        let correctedAllTime = max(storedAllTime, monthTotal, todayTotal)
+
+        if correctedAllTime != storedAllTime {
+            defaults.set(Double(correctedAllTime), forKey: SharedKey.allTimeTotal)
+        }
 
         return UsageSnapshot(
-            todayTotal: bytes(defaults.double(forKey: SharedKey.todayTotal)),
+            todayTotal: todayTotal,
             todayCellular: bytes(defaults.double(forKey: SharedKey.todayCellular)),
             todayWiFi: bytes(defaults.double(forKey: SharedKey.todayWiFi)),
-            monthTotal: bytes(defaults.double(forKey: SharedKey.monthTotal)),
+            monthTotal: monthTotal,
             monthCellular: bytes(defaults.double(forKey: SharedKey.monthCellular)),
             monthWiFi: bytes(defaults.double(forKey: SharedKey.monthWiFi)),
-            allTimeTotal: bytes(defaults.double(forKey: SharedKey.allTimeTotal)),
+            allTimeTotal: correctedAllTime,
             planCapacity: bytes(defaults.double(forKey: SharedKey.planCapacity)),
             planUsed: bytes(defaults.double(forKey: SharedKey.planUsed)),
             planRemaining: bytes(defaults.double(forKey: SharedKey.planRemaining)),
@@ -505,9 +513,14 @@ private struct NetFlowWidgetView: View {
                 }
             } else {
                 HStack {
-                    Text("套餐信息需打开 App 同步")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("套餐未同步")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text("打开 NetFlow 一次即可")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.tertiary)
+                    }
                     Spacer()
                     Text(Format.time(entry.snapshot.updatedAt))
                         .font(.system(size: 8))
@@ -604,9 +617,14 @@ private struct NetFlowWidgetView: View {
                 }
             } else {
                 HStack {
-                    Text("套餐信息需打开 NetFlow 同步")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("套餐未同步")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text("打开 NetFlow 一次后自动同步")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.tertiary)
+                    }
                     Spacer()
                     speedPair
                 }
