@@ -265,7 +265,7 @@ final class AppStore: ObservableObject {
     func save(forcePersistence: Bool = true) {
         let now = Date()
         if forcePersistence || now.timeIntervalSince(lastDiskSaveAt) >= diskSaveInterval {
-            persistence.save(
+            let didPersist = persistence.save(
                 settings: settings,
                 plan: plan,
                 records: dailyRecords,
@@ -273,12 +273,11 @@ final class AppStore: ObservableObject {
                 networkSnapshot: liveSnapshot.timestamp == .distantPast ? nil : liveSnapshot
             )
 
-            // Keep the legacy cache in sync during migration; the JSON payload is authoritative.
-            if liveSnapshot.timestamp != .distantPast {
-                NetworkSnapshotCache.save(liveSnapshot)
+            if didPersist {
+                lastDiskSaveAt = now
+                // The atomic JSON now owns the baseline. Remove the old migration cache.
+                NetworkSnapshotCache.clear()
             }
-
-            lastDiskSaveAt = now
         }
 
         NetFlowWidgetBridge.publish(
