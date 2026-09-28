@@ -127,7 +127,6 @@ struct OverviewView: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.62)
-                .contentTransition(.numericText())
 
                 Text(store.plan.isUnlimited
                      ? "不限量套餐"
@@ -392,7 +391,6 @@ struct OverviewView: View {
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.64)
-                .contentTransition(.numericText())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -424,7 +422,6 @@ struct OverviewView: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
-                .contentTransition(.numericText())
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
