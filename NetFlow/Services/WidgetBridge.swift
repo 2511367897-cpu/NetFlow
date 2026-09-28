@@ -34,8 +34,15 @@ enum NetFlowWidgetBridge {
         static let resetToken = "widget.reset.token"
     }
 
+    static var isSharedContainerAvailable: Bool {
+        FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupID
+        ) != nil
+    }
+
     private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: appGroupID)
+        guard isSharedContainerAvailable else { return nil }
+        return UserDefaults(suiteName: appGroupID)
     }
 
     static func publish(
