@@ -27,7 +27,8 @@ final class UsageTracker {
         guard let old = baseline else {
             return SampleResult(snapshot: current, delta: .zero, rate: .zero)
         }
-        let seconds = max(current.timestamp.timeIntervalSince(old.timestamp), 0.001)
+        let elapsed = current.timestamp.timeIntervalSince(old.timestamp)
+        let seconds = max(elapsed, 0.001)
         guard current.wifi.received >= old.wifi.received,
               current.wifi.sent >= old.wifi.sent,
               current.cellular.received >= old.cellular.received,
@@ -42,7 +43,7 @@ final class UsageTracker {
             isValid: true
         )
         let r: NetworkRate
-        if seconds <= 10 {
+        if elapsed >= 0.2 && elapsed <= 10 {
             r = NetworkRate(
                 wifiDown: Double(d.wifiReceived) / seconds,
                 wifiUp: Double(d.wifiSent) / seconds,
