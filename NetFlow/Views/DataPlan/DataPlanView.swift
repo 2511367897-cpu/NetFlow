@@ -19,8 +19,11 @@ struct DataPlanView: View {
     @EnvironmentObject var store: AppStore
     @State private var capacityValue = 30.0
     @State private var capacityUnit: CapacityDisplayUnit = .gb
+    @State private var calibrationValue = 0.0
+    @State private var calibrationUnit: CapacityDisplayUnit = .gb
     @State private var editingThreshold: AlertThreshold?
     @FocusState private var capacityFieldFocused: Bool
+    @FocusState private var calibrationFieldFocused: Bool
 
     private var appLocale: Locale { store.settings.appLanguage.locale }
 
@@ -75,6 +78,59 @@ struct DataPlanView: View {
                                 Text("\(AppLocalization.string("custom_days", locale: appLocale)) \(store.plan.customDays)")
                             }
                         }
+                    }
+                }
+
+                if !store.plan.isUnlimited {
+                    cardSection("流量校准") {
+                        LabeledContent(
+                            "当前套餐已用",
+                            value: ByteFormat.string(store.planUsage())
+                        )
+
+                        HStack {
+                            TextField("运营商已用流量", value: $calibrationValue, format: .number)
+                                .keyboardType(.decimalPad)
+                                .focused($calibrationFieldFocused)
+                                .submitLabel(.done)
+
+                            Picker("单位", selection: $calibrationUnit) {
+                                ForEach(CapacityDisplayUnit.allCases) { unit in
+                                    Text(unit.rawValue).tag(unit)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .labelsHidden()
+                        }
+
+                        Button {
+                            capacityFieldFocused = false
+                            calibrationFieldFocused = false
+                            store.calibratePlanUsage(to: calibrationBytes)
+                            loadCalibrationEditor()
+                        } label: {
+                            Label("按运营商数据校准", systemImage: "scope")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        if let calibratedAt = store.plan.lastCalibrationDate {
+                            Text("上次校准：\(calibratedAt.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if store.plan.usageCorrectionBytes != nil {
+                            Button("清除校准") {
+                                store.clearUsageCalibration()
+                                loadCalibrationEditor()
+                            }
+                            .font(.subheadline)
+                        }
+
+                        Text("当 NetFlow 与运营商 App 的本周期已用流量差距较大时，把运营商数字填在这里。校准后会以该数值为基准继续累计，不需要每天手动改。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -186,11 +242,17 @@ struct DataPlanView: View {
         .navigationTitle(Text(verbatim: AppLocalization.string("data_plan", locale: appLocale)))
         .scrollDismissesKeyboard(.interactively)
         .contentShape(Rectangle())
-        .onTapGesture { capacityFieldFocused = false }
+        .onTapGesture {
+            capacityFieldFocused = false
+            calibrationFieldFocused = false
+        }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
-                Button("done") { capacityFieldFocused = false }
+                Button("done") {
+                    capacityFieldFocused = false
+                    calibrationFieldFocused = false
+                }
             }
         }
         .sheet(item: $editingThreshold) { threshold in
@@ -206,6 +268,7 @@ struct DataPlanView: View {
         }
         .onAppear {
             loadCapacityEditor()
+            loadCalibrationEditor()
             deduplicateAlerts()
         }
         .onChange(of: capacityValue) { _ in saveCapacityEditor() }
@@ -299,6 +362,28 @@ struct DataPlanView: View {
         if store.plan.alertThresholds.count != originalCount {
             store.save()
         }
+    }
+
+    private var calibrationBytes: UInt64 {
+        let rawBytes = calibrationValue.isFinite
+            ? max(calibrationValue, 0) * calibrationUnit.multiplier
+            : 0
+        let clamped = min(max(rawBytes, 0), Double(UInt64.max))
+        return UInt64(clamped)
+    }
+
+    private func loadCalibrationEditor() {
+        let bytes = store.plan.lastCalibrationTargetBytes ?? store.planUsage()
+
+        if bytes >= UInt64(CapacityDisplayUnit.tb.multiplier) {
+            calibrationUnit = .tb
+        } else if bytes >= UInt64(CapacityDisplayUnit.gb.multiplier) {
+            calibrationUnit = .gb
+        } else {
+            calibrationUnit = .mb
+        }
+
+        calibrationValue = Double(bytes) / calibrationUnit.multiplier
     }
 
     private func loadCapacityEditor() {
