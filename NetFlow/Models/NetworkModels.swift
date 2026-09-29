@@ -3,15 +3,47 @@ import Foundation
 struct NetworkCounter: Codable, Hashable {
     var received: UInt64
     var sent: UInt64
+
     static let zero = NetworkCounter(received: 0, sent: 0)
-    var total: UInt64 { received + sent }
+
+    var total: UInt64 {
+        let (value, overflow) = received.addingReportingOverflow(sent)
+        return overflow ? UInt64.max : value
+    }
 }
 
 struct NetworkSnapshot: Codable, Hashable {
     var wifi: NetworkCounter
     var cellular: NetworkCounter
     var timestamp: Date
-    static let zero = NetworkSnapshot(wifi: .zero, cellular: .zero, timestamp: .distantPast)
+
+    // Per-interface counters let the tracker survive pdp_ip/en interface churn
+    // without throwing away an entire sample when one interface disappears.
+    // They are optional so backups created by older NetFlow versions still decode.
+    var wifiInterfaces: [String: NetworkCounter]?
+    var cellularInterfaces: [String: NetworkCounter]?
+
+    init(
+        wifi: NetworkCounter,
+        cellular: NetworkCounter,
+        timestamp: Date,
+        wifiInterfaces: [String: NetworkCounter]? = nil,
+        cellularInterfaces: [String: NetworkCounter]? = nil
+    ) {
+        self.wifi = wifi
+        self.cellular = cellular
+        self.timestamp = timestamp
+        self.wifiInterfaces = wifiInterfaces
+        self.cellularInterfaces = cellularInterfaces
+    }
+
+    static let zero = NetworkSnapshot(
+        wifi: .zero,
+        cellular: .zero,
+        timestamp: .distantPast,
+        wifiInterfaces: nil,
+        cellularInterfaces: nil
+    )
 }
 
 struct NetworkDelta: Codable, Hashable {
@@ -20,8 +52,21 @@ struct NetworkDelta: Codable, Hashable {
     var cellularReceived: UInt64
     var cellularSent: UInt64
     var isValid: Bool
-    static let zero = NetworkDelta(wifiReceived: 0, wifiSent: 0, cellularReceived: 0, cellularSent: 0, isValid: false)
-    var totalBytes: UInt64 { wifiReceived + wifiSent + cellularReceived + cellularSent }
+
+    static let zero = NetworkDelta(
+        wifiReceived: 0,
+        wifiSent: 0,
+        cellularReceived: 0,
+        cellularSent: 0,
+        isValid: false
+    )
+
+    var totalBytes: UInt64 {
+        [wifiReceived, wifiSent, cellularReceived, cellularSent].reduce(UInt64(0)) {
+            let (value, overflow) = $0.addingReportingOverflow($1)
+            return overflow ? UInt64.max : value
+        }
+    }
 }
 
 struct NetworkRate: Hashable {
