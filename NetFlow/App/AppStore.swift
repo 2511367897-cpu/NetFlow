@@ -70,6 +70,15 @@ final class AppStore: ObservableObject {
         save()
     }
 
+    func prepareForBackground() async {
+        // Take one final sample while iOS still gives the app a short execution
+        // window. This reduces the foreground-to-background blind spot.
+        timerTask?.cancel()
+        timerTask = nil
+        await refresh()
+        save()
+    }
+
     private func restartSamplingTimer() {
         timerTask?.cancel()
         timerTask = Task { [weak self] in
@@ -195,17 +204,44 @@ final class AppStore: ObservableObject {
         plan.activeCycleEnd = current.end
         plan.carriedBytes = previousRemaining
         plan.manualUsedBytes = 0
+        plan.usageCorrectionBytes = nil
+        plan.lastCalibrationDate = nil
+        plan.lastCalibrationTargetBytes = nil
         plan.triggeredAlertIDs.removeAll()
         return true
     }
 
     func planUsage(at date: Date = Date()) -> UInt64 {
         let interval = plan.cycleInterval(containing: date)
-        let measured = dailyRecords
-            .filter { interval.contains($0.date) }
-            .reduce(UInt64(0)) { $0 &+ $1.cellularTotalBytes }
-        let manual = interval.start == plan.activeCycleStart ? plan.manualUsedBytes : 0
-        return measured &+ manual
+        let measured = measuredPlanUsage(in: interval)
+        guard interval.start == plan.activeCycleStart else { return measured }
+        return plan.adjustedUsage(measuredBytes: measured)
+    }
+
+    func calibratePlanUsage(to targetBytes: UInt64, at date: Date = Date()) {
+        _ = normalizePlanCycle(now: date)
+        let interval = plan.cycleInterval(containing: date)
+        guard interval.start == plan.activeCycleStart else { return }
+
+        let measured = measuredPlanUsage(in: interval)
+        let base = saturatingAdd(measured, plan.manualUsedBytes)
+        plan.usageCorrectionBytes = signedDifference(target: targetBytes, baseline: base)
+        plan.lastCalibrationDate = date
+        plan.lastCalibrationTargetBytes = targetBytes
+
+        // Re-evaluate thresholds from the corrected carrier-aligned baseline.
+        plan.triggeredAlertIDs.removeAll()
+        checkAlerts()
+        save()
+    }
+
+    func clearUsageCalibration() {
+        plan.usageCorrectionBytes = nil
+        plan.lastCalibrationDate = nil
+        plan.lastCalibrationTargetBytes = nil
+        plan.triggeredAlertIDs.removeAll()
+        checkAlerts()
+        save()
     }
 
     func isPlanExceeded(at date: Date = Date()) -> Bool {
@@ -220,13 +256,17 @@ final class AppStore: ObservableObject {
         ) ?? date
         let measuredThroughDate = dailyRecords
             .filter { interval.contains($0.date) && $0.date < endOfDay }
-            .reduce(UInt64(0)) { $0 &+ $1.cellularTotalBytes }
-        let manualUsage = interval.start == plan.activeCycleStart ? plan.manualUsedBytes : 0
+            .reduce(UInt64(0)) { partial, record in
+                saturatingAdd(partial, record.cellularTotalBytes)
+            }
+        let used = interval.start == plan.activeCycleStart
+            ? plan.adjustedUsage(measuredBytes: measuredThroughDate)
+            : measuredThroughDate
         let capacity = interval.start == plan.activeCycleStart
             ? plan.effectiveCapacityBytes
             : plan.capacityBytes
 
-        return measuredThroughDate &+ manualUsage > capacity
+        return used > capacity
     }
 
     func checkAlerts() {
@@ -308,12 +348,38 @@ final class AppStore: ObservableObject {
         liveSnapshot = .zero
         currentRate = .zero
         plan.manualUsedBytes = 0
+        plan.usageCorrectionBytes = nil
+        plan.lastCalibrationDate = nil
+        plan.lastCalibrationTargetBytes = nil
         plan.carriedBytes = 0
         plan.triggeredAlertIDs.removeAll()
         tracker.resetBaseline()
         NetworkSnapshotCache.clear()
         save()
 
+    }
+
+    private func measuredPlanUsage(in interval: DateInterval) -> UInt64 {
+        dailyRecords
+            .filter { interval.contains($0.date) }
+            .reduce(UInt64(0)) { partial, record in
+                saturatingAdd(partial, record.cellularTotalBytes)
+            }
+    }
+
+    private func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+        let (value, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? UInt64.max : value
+    }
+
+    private func signedDifference(target: UInt64, baseline: UInt64) -> Int64 {
+        if target >= baseline {
+            let difference = target - baseline
+            return difference > UInt64(Int64.max) ? Int64.max : Int64(difference)
+        }
+
+        let difference = baseline - target
+        return difference > UInt64(Int64.max) ? -Int64.max : -Int64(difference)
     }
 
     private func portion(_ value: UInt64, fraction: Double) -> UInt64 {
