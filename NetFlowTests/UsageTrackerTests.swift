@@ -72,7 +72,7 @@ final class UsageTrackerTests: XCTestCase {
         XCTAssertEqual(result.rate, .zero)
     }
 
-    func testCounterResetInvalidatesSample() {
+    func testCounterResetSalvagesBytesAfterReset() {
         let reader = StubReader([
             snapshot(100, wifi: 100, cellular: 300),
             snapshot(110, wifi: 90, cellular: 350)
@@ -82,7 +82,40 @@ final class UsageTrackerTests: XCTestCase {
         _ = tracker.sample(previous: .zero)
         let result = tracker.sample(previous: snapshot(100, wifi: 100, cellular: 300))
 
-        XCTAssertFalse(result.delta.isValid)
+        XCTAssertTrue(result.delta.isValid)
+        XCTAssertEqual(result.delta.wifiReceived, 90)
+        XCTAssertEqual(result.delta.cellularReceived, 50)
+        XCTAssertEqual(result.rate, .zero)
+    }
+
+    func testInterfaceChurnDoesNotEraseOtherCellularTraffic() {
+        let old = NetworkSnapshot(
+            wifi: .zero,
+            cellular: NetworkCounter(received: 1_500, sent: 150),
+            timestamp: Date(timeIntervalSince1970: 100),
+            wifiInterfaces: [:],
+            cellularInterfaces: [
+                "pdp_ip0": NetworkCounter(received: 1_000, sent: 100),
+                "pdp_ip1": NetworkCounter(received: 500, sent: 50)
+            ]
+        )
+        let current = NetworkSnapshot(
+            wifi: .zero,
+            cellular: NetworkCounter(received: 1_240, sent: 124),
+            timestamp: Date(timeIntervalSince1970: 110),
+            wifiInterfaces: [:],
+            cellularInterfaces: [
+                "pdp_ip0": NetworkCounter(received: 1_200, sent: 120),
+                "pdp_ip2": NetworkCounter(received: 40, sent: 4)
+            ]
+        )
+        let tracker = UsageTracker(reader: StubReader([current]))
+
+        let result = tracker.sample(previous: old)
+
+        XCTAssertTrue(result.delta.isValid)
+        XCTAssertEqual(result.delta.cellularReceived, 240)
+        XCTAssertEqual(result.delta.cellularSent, 24)
         XCTAssertEqual(result.rate, .zero)
     }
 }
