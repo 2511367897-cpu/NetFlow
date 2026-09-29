@@ -49,6 +49,14 @@ struct DataPlan: Codable, Hashable {
     var rolloverEnabled = false
     var carriedBytes: UInt64 = 0
     var manualUsedBytes: UInt64 = 0
+
+    // Signed correction applied to the current cycle after the user calibrates
+    // NetFlow against the carrier's "used data" value. Optional fields keep
+    // backups from older versions fully decodable.
+    var usageCorrectionBytes: Int64?
+    var lastCalibrationDate: Date?
+    var lastCalibrationTargetBytes: UInt64?
+
     var activeCycleStart = Calendar.current.startOfDay(for: Date())
     var activeCycleEnd = Calendar.current.date(byAdding: .month, value: 1, to: Calendar.current.startOfDay(for: Date())) ?? Date()
     var alertThresholds: [AlertThreshold] = [
@@ -69,6 +77,24 @@ struct DataPlan: Codable, Hashable {
         (name == Self.defaultName || name == Self.legacyDefaultName)
             ? AppLocalization.string("default_plan_name", locale: locale)
             : name
+    }
+
+    func adjustedUsage(measuredBytes: UInt64, includeManual: Bool = true) -> UInt64 {
+        var value = measuredBytes
+
+        if includeManual {
+            let (sum, overflow) = value.addingReportingOverflow(manualUsedBytes)
+            value = overflow ? UInt64.max : sum
+        }
+
+        let correction = usageCorrectionBytes ?? 0
+        if correction >= 0 {
+            let (sum, overflow) = value.addingReportingOverflow(UInt64(correction))
+            return overflow ? UInt64.max : sum
+        }
+
+        let magnitude = correction.magnitude
+        return value > magnitude ? value - magnitude : 0
     }
 
     func cycleInterval(containing date: Date) -> DateInterval {
@@ -124,9 +150,13 @@ struct DataPlan: Codable, Hashable {
         let interval = cycleInterval(containing: date)
         let measured = records
             .filter { interval.contains($0.date) }
-            .reduce(UInt64(0)) { $0 &+ $1.cellularTotalBytes }
-        let manual = interval.start == activeCycleStart ? manualUsedBytes : 0
-        let used = measured &+ manual
+            .reduce(UInt64(0)) { partial, record in
+                let (sum, overflow) = partial.addingReportingOverflow(record.cellularTotalBytes)
+                return overflow ? UInt64.max : sum
+            }
+        let used = interval.start == activeCycleStart
+            ? adjustedUsage(measuredBytes: measured)
+            : measured
         let capacity = interval.start == activeCycleStart ? effectiveCapacityBytes : capacityBytes
         return capacity > used ? capacity - used : 0
     }
@@ -138,9 +168,13 @@ struct DataPlan: Codable, Hashable {
         let boundedNow = min(max(date, interval.start), interval.end)
         let measured = records
             .filter { interval.contains($0.date) && $0.date <= boundedNow }
-            .reduce(UInt64(0)) { $0 &+ $1.cellularTotalBytes }
-        let manual = interval.start == activeCycleStart ? manualUsedBytes : 0
-        let used = measured &+ manual
+            .reduce(UInt64(0)) { partial, record in
+                let (sum, overflow) = partial.addingReportingOverflow(record.cellularTotalBytes)
+                return overflow ? UInt64.max : sum
+            }
+        let used = interval.start == activeCycleStart
+            ? adjustedUsage(measuredBytes: measured)
+            : measured
 
         // Use at least one day as the observation window so a few minutes of
         // early-cycle traffic do not produce an unrealistically large forecast.
