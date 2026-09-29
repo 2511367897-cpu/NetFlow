@@ -18,7 +18,7 @@ struct NetFlowApp: App {
             case .active:
                 Task { await store.refreshAfterBecomingActive() }
             case .background:
-                store.pauseSampling()
+                Task { await store.prepareForBackground() }
             case .inactive:
                 store.save()
             @unknown default:
