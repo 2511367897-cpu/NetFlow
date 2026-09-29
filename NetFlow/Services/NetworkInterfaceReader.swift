@@ -14,6 +14,8 @@ final class NetworkInterfaceReader {
 
         var wifi = NetworkCounter.zero
         var cellular = NetworkCounter.zero
+        var wifiInterfaces: [String: NetworkCounter] = [:]
+        var cellularInterfaces: [String: NetworkCounter] = [:]
         var cursor: UnsafeMutablePointer<ifaddrs>? = first
 
         while let interface = cursor {
@@ -22,19 +24,42 @@ final class NetworkInterfaceReader {
 
             if let rawData = item.ifa_data {
                 let data = rawData.assumingMemoryBound(to: if_data.self).pointee
+                let counter = NetworkCounter(
+                    received: UInt64(data.ifi_ibytes),
+                    sent: UInt64(data.ifi_obytes)
+                )
+
                 if name == "en0" {
-                    wifi.received &+= UInt64(data.ifi_ibytes)
-                    wifi.sent &+= UInt64(data.ifi_obytes)
+                    wifiInterfaces[name] = counter
+                    wifi = Self.saturatingAdd(wifi, counter)
                 } else if name.hasPrefix("pdp_ip") {
-                    cellular.received &+= UInt64(data.ifi_ibytes)
-                    cellular.sent &+= UInt64(data.ifi_obytes)
+                    cellularInterfaces[name] = counter
+                    cellular = Self.saturatingAdd(cellular, counter)
                 }
             }
 
             cursor = item.ifa_next
         }
 
-        return NetworkSnapshot(wifi: wifi, cellular: cellular, timestamp: Date())
+        return NetworkSnapshot(
+            wifi: wifi,
+            cellular: cellular,
+            timestamp: Date(),
+            wifiInterfaces: wifiInterfaces,
+            cellularInterfaces: cellularInterfaces
+        )
+    }
+
+    private static func saturatingAdd(_ lhs: NetworkCounter, _ rhs: NetworkCounter) -> NetworkCounter {
+        NetworkCounter(
+            received: saturatingAdd(lhs.received, rhs.received),
+            sent: saturatingAdd(lhs.sent, rhs.sent)
+        )
+    }
+
+    private static func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+        let (value, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? UInt64.max : value
     }
 }
 
