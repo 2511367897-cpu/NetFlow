@@ -26,16 +26,32 @@ struct OverviewView: View {
         store.dailyRecords.filter { monthInterval.contains($0.date) }
     }
 
-    private var monthTotal: UInt64 {
-        monthRecords.reduce(0) { $0 &+ $1.totalBytes }
+    private var rawMonthTotal: UInt64 {
+        monthRecords.reduce(UInt64(0)) { saturatingAdd($0, $1.totalBytes) }
     }
 
-    private var monthCellular: UInt64 {
-        monthRecords.reduce(0) { $0 &+ $1.cellularTotalBytes }
+    private var rawMonthCellular: UInt64 {
+        monthRecords.reduce(UInt64(0)) { saturatingAdd($0, $1.cellularTotalBytes) }
     }
 
     private var monthWiFi: UInt64 {
-        monthRecords.reduce(0) { $0 &+ $1.wifiTotalBytes }
+        monthRecords.reduce(UInt64(0)) { saturatingAdd($0, $1.wifiTotalBytes) }
+    }
+
+    private var usesMonthlyPlanCalibration: Bool {
+        guard store.plan.cycleType == .monthly else { return false }
+        let planInterval = store.plan.cycleInterval(containing: Date())
+        return abs(planInterval.start.timeIntervalSince(monthInterval.start)) < 1
+            && abs(planInterval.end.timeIntervalSince(monthInterval.end)) < 1
+    }
+
+    private var monthCellular: UInt64 {
+        usesMonthlyPlanCalibration ? planUsed : rawMonthCellular
+    }
+
+    private var monthTotal: UInt64 {
+        guard usesMonthlyPlanCalibration else { return rawMonthTotal }
+        return saturatingAdd(monthWiFi, monthCellular)
     }
 
     private var planUsed: UInt64 {
@@ -136,7 +152,15 @@ struct OverviewView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
 
-                if let age = dataAge {
+                if let calibratedAt = store.plan.lastCalibrationDate {
+                    Label(
+                        "已按运营商数据校准 · \(calibratedAt.formatted(date: .omitted, time: .shortened))",
+                        systemImage: "scope"
+                    )
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.82))
+                    .padding(.top, 2)
+                } else if let age = dataAge {
                     Label(
                         age > 300 ? "数据可能滞后，点右上角刷新" : "数据已同步",
                         systemImage: age > 300 ? "exclamationmark.circle.fill" : "checkmark.circle.fill"
@@ -464,6 +488,11 @@ struct OverviewView: View {
             return "蜂窝网络"
         }
         return "未连接"
+    }
+
+    private func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+        let (value, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? UInt64.max : value
     }
 
     private var monthInterval: DateInterval {
