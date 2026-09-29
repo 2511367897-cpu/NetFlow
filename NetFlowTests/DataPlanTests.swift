@@ -92,4 +92,17 @@ final class DataPlanTests: XCTestCase {
 
         XCTAssertEqual(plan.remainingBytes(records: [previousRecord], at: date(2026, 1, 10, 23)), 800)
     }
+    func testUsageCorrectionCanRaiseOrLowerCurrentCycleUsage() {
+        var plan = DataPlan()
+        plan.manualUsedBytes = 100
+        plan.usageCorrectionBytes = 250
+        XCTAssertEqual(plan.adjustedUsage(measuredBytes: 1_000), 1_350)
+
+        plan.usageCorrectionBytes = -600
+        XCTAssertEqual(plan.adjustedUsage(measuredBytes: 1_000), 500)
+
+        plan.usageCorrectionBytes = -2_000
+        XCTAssertEqual(plan.adjustedUsage(measuredBytes: 1_000), 0)
+    }
+
 }
