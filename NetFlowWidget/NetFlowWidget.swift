@@ -108,17 +108,26 @@ struct ToggleWidgetEditingIntent: AppIntent {
     }
 }
 
-private struct RawCounters {
+private struct RawInterfaceCounter: Codable {
+    var received: UInt64
+    var sent: UInt64
+}
+
+private struct RawCounters: Codable {
     var wifiReceived: UInt64
     var wifiSent: UInt64
     var cellularReceived: UInt64
     var cellularSent: UInt64
+    var wifiInterfaces: [String: RawInterfaceCounter]
+    var cellularInterfaces: [String: RawInterfaceCounter]
 
     static let zero = RawCounters(
         wifiReceived: 0,
         wifiSent: 0,
         cellularReceived: 0,
-        cellularSent: 0
+        cellularSent: 0,
+        wifiInterfaces: [:],
+        cellularInterfaces: [:]
     )
 }
 
@@ -174,13 +183,19 @@ private enum RawCounterReader {
 
             if item.ifa_addr?.pointee.sa_family == UInt8(AF_LINK), let rawData = item.ifa_data {
                 let data = rawData.assumingMemoryBound(to: if_data.self).pointee
+                let counter = RawInterfaceCounter(
+                    received: UInt64(data.ifi_ibytes),
+                    sent: UInt64(data.ifi_obytes)
+                )
 
                 if name == "en0" {
-                    result.wifiReceived &+= UInt64(data.ifi_ibytes)
-                    result.wifiSent &+= UInt64(data.ifi_obytes)
+                    result.wifiInterfaces[name] = counter
+                    result.wifiReceived = saturatingAdd(result.wifiReceived, counter.received)
+                    result.wifiSent = saturatingAdd(result.wifiSent, counter.sent)
                 } else if name.hasPrefix("pdp_ip") {
-                    result.cellularReceived &+= UInt64(data.ifi_ibytes)
-                    result.cellularSent &+= UInt64(data.ifi_obytes)
+                    result.cellularInterfaces[name] = counter
+                    result.cellularReceived = saturatingAdd(result.cellularReceived, counter.received)
+                    result.cellularSent = saturatingAdd(result.cellularSent, counter.sent)
                 }
             }
 
@@ -188,6 +203,11 @@ private enum RawCounterReader {
         }
 
         return result
+    }
+
+    private static func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+        let (value, overflow) = lhs.addingReportingOverflow(rhs)
+        return overflow ? UInt64.max : value
     }
 }
 
@@ -223,6 +243,7 @@ private enum WidgetTrafficStore {
         static let rawCellularSent = "self.raw.cellular.sent"
         static let rawTimestamp = "self.raw.timestamp"
         static let rawAvailable = "self.raw.available"
+        static let rawSnapshotV3 = "self.raw.snapshot.v3"
         static let hasMeasurement = "self.hasMeasurement"
         static let allTimeTotal = "self.alltime.total"
         static let rateDown = "self.rate.down"
@@ -259,33 +280,49 @@ private enum WidgetTrafficStore {
         let currentTimestamp = now.timeIntervalSince1970
 
         if defaults.bool(forKey: Key.rawAvailable) {
-            let previous = RawCounters(
-                wifiReceived: storedBytes(Key.rawWiFiReceived),
-                wifiSent: storedBytes(Key.rawWiFiSent),
-                cellularReceived: storedBytes(Key.rawCellularReceived),
-                cellularSent: storedBytes(Key.rawCellularSent)
-            )
             let previousTimestamp = defaults.double(forKey: Key.rawTimestamp)
+            var result: (delta: TrafficDelta, stableForRate: Bool)?
 
-            if previousTimestamp > 0, previousTimestamp < currentTimestamp,
-               countersAreValid(current: current, previous: previous) {
-                let delta = TrafficDelta(
-                    wifiReceived: current.wifiReceived - previous.wifiReceived,
-                    wifiSent: current.wifiSent - previous.wifiSent,
-                    cellularReceived: current.cellularReceived - previous.cellularReceived,
-                    cellularSent: current.cellularSent - previous.cellularSent
+            if let previous = loadRawSnapshot() {
+                result = interfaceAwareDelta(current: current, previous: previous)
+            } else {
+                // One-time migration from older widget builds that persisted only
+                // aggregate counters. Do not guess across a regression.
+                let previous = RawCounters(
+                    wifiReceived: storedBytes(Key.rawWiFiReceived),
+                    wifiSent: storedBytes(Key.rawWiFiSent),
+                    cellularReceived: storedBytes(Key.rawCellularReceived),
+                    cellularSent: storedBytes(Key.rawCellularSent),
+                    wifiInterfaces: [:],
+                    cellularInterfaces: [:]
                 )
-                record(delta: delta, from: Date(timeIntervalSince1970: previousTimestamp), to: now)
+                if countersAreValid(current: current, previous: previous) {
+                    result = (
+                        TrafficDelta(
+                            wifiReceived: current.wifiReceived - previous.wifiReceived,
+                            wifiSent: current.wifiSent - previous.wifiSent,
+                            cellularReceived: current.cellularReceived - previous.cellularReceived,
+                            cellularSent: current.cellularSent - previous.cellularSent
+                        ),
+                        true
+                    )
+                }
+            }
+
+            if previousTimestamp > 0,
+               previousTimestamp < currentTimestamp,
+               let result {
+                record(delta: result.delta, from: Date(timeIntervalSince1970: previousTimestamp), to: now)
                 defaults.set(true, forKey: Key.hasMeasurement)
 
                 let elapsed = currentTimestamp - previousTimestamp
-                if elapsed >= 0.2 && elapsed <= 10 {
+                if elapsed >= 0.2 && elapsed <= 10 && result.stableForRate {
                     defaults.set(
-                        Double(delta.wifiReceived &+ delta.cellularReceived) / elapsed,
+                        Double(saturatingAdd(result.delta.wifiReceived, result.delta.cellularReceived)) / elapsed,
                         forKey: Key.rateDown
                     )
                     defaults.set(
-                        Double(delta.wifiSent &+ delta.cellularSent) / elapsed,
+                        Double(saturatingAdd(result.delta.wifiSent, result.delta.cellularSent)) / elapsed,
                         forKey: Key.rateUp
                     )
                 } else {
@@ -298,6 +335,7 @@ private enum WidgetTrafficStore {
             }
         }
 
+        saveRawSnapshot(current)
         defaults.set(NSNumber(value: current.wifiReceived), forKey: Key.rawWiFiReceived)
         defaults.set(NSNumber(value: current.wifiSent), forKey: Key.rawWiFiSent)
         defaults.set(NSNumber(value: current.cellularReceived), forKey: Key.rawCellularReceived)
@@ -488,6 +526,71 @@ private enum WidgetTrafficStore {
         let parts = key.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
         return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    }
+
+    private static func interfaceAwareDelta(
+        current: RawCounters,
+        previous: RawCounters
+    ) -> (delta: TrafficDelta, stableForRate: Bool) {
+        let wifi = interfaceDelta(current: current.wifiInterfaces, previous: previous.wifiInterfaces)
+        let cellular = interfaceDelta(current: current.cellularInterfaces, previous: previous.cellularInterfaces)
+
+        return (
+            TrafficDelta(
+                wifiReceived: wifi.received,
+                wifiSent: wifi.sent,
+                cellularReceived: cellular.received,
+                cellularSent: cellular.sent
+            ),
+            wifi.stable && cellular.stable
+        )
+    }
+
+    private static func interfaceDelta(
+        current: [String: RawInterfaceCounter],
+        previous: [String: RawInterfaceCounter]
+    ) -> (received: UInt64, sent: UInt64, stable: Bool) {
+        var received: UInt64 = 0
+        var sent: UInt64 = 0
+        var stable = true
+
+        for (name, currentCounter) in current {
+            if let previousCounter = previous[name] {
+                if currentCounter.received >= previousCounter.received {
+                    received = saturatingAdd(received, currentCounter.received - previousCounter.received)
+                } else {
+                    received = saturatingAdd(received, currentCounter.received)
+                    stable = false
+                }
+
+                if currentCounter.sent >= previousCounter.sent {
+                    sent = saturatingAdd(sent, currentCounter.sent - previousCounter.sent)
+                } else {
+                    sent = saturatingAdd(sent, currentCounter.sent)
+                    stable = false
+                }
+            } else {
+                received = saturatingAdd(received, currentCounter.received)
+                sent = saturatingAdd(sent, currentCounter.sent)
+                stable = false
+            }
+        }
+
+        if previous.keys.contains(where: { current[$0] == nil }) {
+            stable = false
+        }
+
+        return (received, sent, stable)
+    }
+
+    private static func loadRawSnapshot() -> RawCounters? {
+        guard let data = defaults.data(forKey: Key.rawSnapshotV3) else { return nil }
+        return try? JSONDecoder().decode(RawCounters.self, from: data)
+    }
+
+    private static func saveRawSnapshot(_ snapshot: RawCounters) {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        defaults.set(data, forKey: Key.rawSnapshotV3)
     }
 
     private static func countersAreValid(current: RawCounters, previous: RawCounters) -> Bool {
