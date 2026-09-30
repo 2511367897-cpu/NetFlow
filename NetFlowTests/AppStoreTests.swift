@@ -76,7 +76,7 @@ final class AppStoreTests: XCTestCase {
     }
 
     private func isolatedStore(raw: UInt64 = 100_000_000, nextDelta: UInt64 = 0) -> (AppStore, PersistenceService, Date) {
-        let now = Date()
+        let now = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
         let baseline = NetworkSnapshot(wifi: .zero, cellular: NetworkCounter(received: 1_000, sent: 0), timestamp: now)
         let next = NetworkSnapshot(wifi: .zero, cellular: NetworkCounter(received: 1_000 + nextDelta, sent: 0), timestamp: now.addingTimeInterval(1))
         let reader = Reader([baseline, next, next])

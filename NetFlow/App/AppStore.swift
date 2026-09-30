@@ -26,12 +26,12 @@ final class AppStore: ObservableObject {
          tracker: UsageTracker = UsageTracker(), notificationsEnabled: Bool = true) {
         self.persistence = persistence
         self.tracker = tracker
-        self.notificationService.enabled = notificationsEnabled
         let loaded = persistence.load()
         settings = loaded.settings
         plan = loaded.plan
         dailyRecords = loaded.records
         alerts = loaded.alerts
+        self.notificationService.enabled = notificationsEnabled
         if let persistedSnapshot = loaded.networkSnapshot {
             liveSnapshot = persistedSnapshot
         } else if let cachedSnapshot = NetworkSnapshotCache.load() {

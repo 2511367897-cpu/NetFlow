@@ -35,6 +35,11 @@ enum InterfaceCounters {
         return result
     }
 
+    // RTM_IFINFO2 in the public <net/route.h> header. That header is not
+    // re-exported by Swift's Darwin module on this SDK; the routing ABI value
+    // is 0x12. No private symbols or selectors are used.
+    private static let interfaceInfoMessageType: UInt8 = 0x12
+
     private static func read64() -> Reading? {
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
         let mibCount = u_int(mib.count)
@@ -57,7 +62,7 @@ enum InterfaceCounters {
                 let count = Int(length)
                 guard count >= 4, count <= size - offset else { return nil }
                 let type = message.load(fromByteOffset: 3, as: UInt8.self)
-                if type == UInt8(RTM_IFINFO2), count >= MemoryLayout<if_msghdr2>.size {
+                if type == interfaceInfoMessageType, count >= MemoryLayout<if_msghdr2>.size {
                     var header = if_msghdr2()
                     withUnsafeMutableBytes(of: &header) { target in
                         _ = memcpy(target.baseAddress!, message, target.count)
