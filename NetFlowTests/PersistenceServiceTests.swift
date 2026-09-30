@@ -73,4 +73,36 @@ final class PersistenceServiceTests: XCTestCase {
         XCTAssertTrue(lines[1].hasPrefix("2026-01-10,10,20,30,30,40,70,100,false"))
         XCTAssertTrue(lines[2].hasPrefix("2026-01-11,10,20,30,30,40,70,100,false"))
     }
+    func testLegacyJSONWithoutNewFieldsStillDecodes() throws {
+        let payload = PersistencePayload(settings: AppSettings(), plan: DataPlan(), records: [sampleRecord()], alerts: [],
+            networkSnapshot: NetworkSnapshot(wifi: .zero, cellular: .zero, timestamp: Date()))
+        let data = try JSONEncoder.pretty.encode(payload)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var plan = try XCTUnwrap(json["plan"] as? [String: Any])
+        for key in ["usageCorrectionBytes", "lastCalibrationDate", "lastCalibrationTargetBytes", "calibrationMeasuredBytes"] {
+            plan.removeValue(forKey: key)
+        }
+        json["plan"] = plan
+        var records = try XCTUnwrap(json["records"] as? [[String: Any]])
+        records[0].removeValue(forKey: "isEstimated")
+        json["records"] = records
+        let decoded = try JSONDecoder.netFlow.decode(PersistencePayload.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(decoded.records[0].cellularTotalBytes, 70)
+        XCTAssertFalse(decoded.records[0].isEstimated)
+        XCTAssertNil(decoded.plan.usageCorrectionBytes)
+    }
+
+    func testBackupPreservesCalibrationButDoesNotReplayDeviceBaseline() throws {
+        var plan = DataPlan()
+        plan.usageCorrectionBytes = -1_000_000_000
+        plan.lastCalibrationTargetBytes = 7_000_000_000
+        plan.calibrationMeasuredBytes = 8_000_000_000
+        plan.lastCalibrationDate = date(2026, 1, 10)
+        let service = PersistenceService()
+        let url = try service.makeBackup(settings: AppSettings(), plan: plan, records: [sampleRecord()], alerts: [])
+        let payload = try service.loadBackup(from: url)
+        XCTAssertEqual(payload.plan, plan)
+        XCTAssertNil(payload.networkSnapshot)
+    }
+
 }

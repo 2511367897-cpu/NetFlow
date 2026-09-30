@@ -19,6 +19,7 @@ struct DataPlanView: View {
     @EnvironmentObject var store: AppStore
     @State private var capacityValue = 30.0
     @State private var capacityUnit: CapacityDisplayUnit = .gb
+    @State private var calibrationFailed = false
     @State private var calibrationValue = 0.0
     @State private var calibrationUnit: CapacityDisplayUnit = .gb
     @State private var editingThreshold: AlertThreshold?
@@ -106,13 +107,24 @@ struct DataPlanView: View {
                         Button {
                             capacityFieldFocused = false
                             calibrationFieldFocused = false
-                            store.calibratePlanUsage(to: calibrationBytes)
+                            calibrationFailed = !store.calibratePlanUsage(to: calibrationBytes)
                             loadCalibrationEditor()
                         } label: {
                             Label("按运营商数据校准", systemImage: "scope")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
+
+                        if calibrationFailed {
+                            Text("网络计数读取失败，未应用校准。请稍后重试。")
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                        if store.liveSnapshot.counterBits == 32 {
+                            Text("当前使用 32 位计数回退；长时间后台可能漏记，请用运营商数据校准。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
 
                         if let calibratedAt = store.plan.lastCalibrationDate {
                             Text("上次校准：\(calibratedAt.formatted(date: .abbreviated, time: .shortened))")
@@ -128,7 +140,7 @@ struct DataPlanView: View {
                             .font(.subheadline)
                         }
 
-                        Text("当 NetFlow 与运营商 App 的本周期已用流量差距较大时，把运营商数字填在这里。校准后会以该数值为基准继续累计，不需要每天手动改。")
+                        Text("当 NetFlow 与运营商 App 的本周期已用流量差距较大时，把运营商数字填在这里。校准后继续累计；每日历史不变。企业证书版小组件独立统计，不会自动同步这里的校准。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -292,9 +304,10 @@ struct DataPlanView: View {
     private func alertTitle(_ threshold: AlertThreshold) -> String {
         switch threshold.kind {
         case .percentUsed:
-            return "\(Int(threshold.value.rounded()))%"
+            return "\(Int(min(max(threshold.value.isFinite ? threshold.value : 0, 0), 100).rounded()))%"
         case .remainingBytes:
-            return ByteFormat.string(UInt64(max(threshold.value, 0)))
+            let value = threshold.value.isFinite ? max(threshold.value, 0) : 0
+            return ByteFormat.string(value >= Double(UInt64.max) ? UInt64.max : UInt64(value))
         }
     }
 
@@ -369,7 +382,7 @@ struct DataPlanView: View {
             ? max(calibrationValue, 0) * calibrationUnit.multiplier
             : 0
         let clamped = min(max(rawBytes, 0), Double(UInt64.max))
-        return UInt64(clamped)
+        return clamped >= Double(UInt64.max) ? UInt64.max : UInt64(clamped)
     }
 
     private func loadCalibrationEditor() {
@@ -397,7 +410,7 @@ struct DataPlanView: View {
             ? max(capacityValue, 0) * capacityUnit.multiplier
             : 0
         let bytes = min(max(rawBytes, 0), Double(UInt64.max))
-        store.plan.capacityBytes = UInt64(bytes)
+        store.plan.capacityBytes = bytes >= Double(UInt64.max) ? UInt64.max : UInt64(bytes)
         store.save()
     }
 }
@@ -524,6 +537,6 @@ private struct AlertThresholdEditor: View {
             ? max(value, 0) * remainingUnit.multiplier
             : 0
         let bytes = min(max(rawBytes, 0), Double(UInt64.max))
-        return ByteFormat.string(UInt64(bytes))
+        return ByteFormat.string(bytes >= Double(UInt64.max) ? UInt64.max : UInt64(bytes))
     }
 }

@@ -30,8 +30,8 @@ targets:
         PRODUCT_NAME: NetFlow
         SWIFT_VERSION: 5.0
         SWIFT_STRICT_CONCURRENCY: minimal
-        MARKETING_VERSION: 4.2.14
-        CURRENT_PROJECT_VERSION: 43
+        MARKETING_VERSION: 4.2.15
+        CURRENT_PROJECT_VERSION: 44
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
@@ -42,6 +42,7 @@ targets:
     platform: iOS
     deploymentTarget: "17.0"
     sources:
+      - path: Shared/InterfaceCounters.swift
       - path: NetFlowWidget
         excludes:
           - Info.plist
@@ -51,8 +52,8 @@ targets:
         PRODUCT_NAME: NetFlowWidget
         SWIFT_VERSION: 5.0
         SWIFT_STRICT_CONCURRENCY: minimal
-        MARKETING_VERSION: 4.2.14
-        CURRENT_PROJECT_VERSION: 43
+        MARKETING_VERSION: 4.2.15
+        CURRENT_PROJECT_VERSION: 44
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: NetFlowWidget/Info.plist
         SKIP_INSTALL: YES
@@ -72,3 +73,14 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/NetFlow.app/NetFlow"
         BUNDLE_LOADER: "$(TEST_HOST)"
+
+schemes:
+  NetFlow:
+    build:
+      targets:
+        NetFlow: all
+        NetFlowTests: [test]
+    test:
+      targets:
+        - NetFlowTests
+      gatherCoverageData: false

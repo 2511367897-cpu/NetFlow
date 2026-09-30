@@ -14,15 +14,19 @@ final class AppStore: ObservableObject {
     let networkContext = NetworkContextService()
     let capabilities = SystemCapabilitiesService()
 
-    private let persistence = PersistenceService()
-    private let tracker = UsageTracker()
+    private let persistence: PersistenceService
+    private let tracker: UsageTracker
     private let notificationService = NotificationService()
     private var timerTask: Task<Void, Never>?
     private var hasStarted = false
     private var lastDiskSaveAt = Date.distantPast
     private let diskSaveInterval: TimeInterval = 30
 
-    init() {
+    init(persistence: PersistenceService = PersistenceService(),
+         tracker: UsageTracker = UsageTracker(), notificationsEnabled: Bool = true) {
+        self.persistence = persistence
+        self.tracker = tracker
+        self.notificationService.enabled = notificationsEnabled
         let loaded = persistence.load()
         settings = loaded.settings
         plan = loaded.plan
@@ -70,12 +74,12 @@ final class AppStore: ObservableObject {
         save()
     }
 
-    func prepareForBackground() async {
+    func prepareForBackground() {
         // Take one final sample while iOS still gives the app a short execution
         // window. This reduces the foreground-to-background blind spot.
         timerTask?.cancel()
         timerTask = nil
-        await refresh()
+        sampleMeasurement()
         save()
     }
 
@@ -93,16 +97,31 @@ final class AppStore: ObservableObject {
     }
 
     func refresh() async {
+        sampleMeasurement()
+    }
+
+    @discardableResult
+    private func sampleMeasurement() -> Bool {
         let previousSnapshot = liveSnapshot
         let result = tracker.sample(previous: liveSnapshot)
+        guard result.didRead, result.snapshot.timestamp != .distantPast else {
+            currentRate = .zero
+            return false
+        }
         liveSnapshot = result.snapshot
         currentRate = result.rate
-        merge(delta: result.delta, from: previousSnapshot.timestamp, to: result.snapshot.timestamp)
+        let rebooted = previousSnapshot.bootTime != nil && result.snapshot.bootTime != nil
+            && abs(previousSnapshot.bootTime! - result.snapshot.bootTime!) > 1
+        let start = rebooted
+            ? max(previousSnapshot.timestamp, Date(timeIntervalSince1970: result.snapshot.bootTime!))
+            : previousSnapshot.timestamp
+        merge(delta: result.delta, from: start, to: result.snapshot.timestamp)
         let cycleChanged = normalizePlanCycle(now: result.snapshot.timestamp)
         let alertCountBefore = alerts.count
         checkAlerts()
         let alertTriggered = alerts.count != alertCountBefore
         save(forcePersistence: cycleChanged || alertTriggered)
+        return true
 
     }
 
@@ -207,6 +226,7 @@ final class AppStore: ObservableObject {
         plan.usageCorrectionBytes = nil
         plan.lastCalibrationDate = nil
         plan.lastCalibrationTargetBytes = nil
+        plan.calibrationMeasuredBytes = nil
         plan.triggeredAlertIDs.removeAll()
         return true
     }
@@ -218,27 +238,37 @@ final class AppStore: ObservableObject {
         return plan.adjustedUsage(measuredBytes: measured)
     }
 
-    func calibratePlanUsage(to targetBytes: UInt64, at date: Date = Date()) {
+    @discardableResult
+    func calibratePlanUsage(to targetBytes: UInt64, at date: Date = Date()) -> Bool {
+        // Consume outstanding raw traffic before choosing the calibration offset.
+        // Otherwise those pre-calibration bytes would be added again on refresh.
+        guard sampleMeasurement() else { return false }
         _ = normalizePlanCycle(now: date)
         let interval = plan.cycleInterval(containing: date)
-        guard interval.start == plan.activeCycleStart else { return }
+        guard interval.start == plan.activeCycleStart else { return false }
 
         let measured = measuredPlanUsage(in: interval)
-        let base = saturatingAdd(measured, plan.manualUsedBytes)
+        // Calibration supersedes the legacy fixed manual addition.
+        plan.manualUsedBytes = 0
+        let base = measured
         plan.usageCorrectionBytes = signedDifference(target: targetBytes, baseline: base)
         plan.lastCalibrationDate = date
         plan.lastCalibrationTargetBytes = targetBytes
+        plan.calibrationMeasuredBytes = measured
 
         // Re-evaluate thresholds from the corrected carrier-aligned baseline.
         plan.triggeredAlertIDs.removeAll()
         checkAlerts()
         save()
+        return true
     }
 
     func clearUsageCalibration() {
+        plan.manualUsedBytes = 0
         plan.usageCorrectionBytes = nil
         plan.lastCalibrationDate = nil
         plan.lastCalibrationTargetBytes = nil
+        plan.calibrationMeasuredBytes = nil
         plan.triggeredAlertIDs.removeAll()
         checkAlerts()
         save()
@@ -255,7 +285,7 @@ final class AppStore: ObservableObject {
             to: calendar.startOfDay(for: date)
         ) ?? date
         let measuredThroughDate = dailyRecords
-            .filter { interval.contains($0.date) && $0.date < endOfDay }
+            .filter { ($0.date >= interval.start && $0.date < interval.end) && $0.date < endOfDay }
             .reduce(UInt64(0)) { partial, record in
                 saturatingAdd(partial, record.cellularTotalBytes)
             }
@@ -351,6 +381,7 @@ final class AppStore: ObservableObject {
         plan.usageCorrectionBytes = nil
         plan.lastCalibrationDate = nil
         plan.lastCalibrationTargetBytes = nil
+        plan.calibrationMeasuredBytes = nil
         plan.carriedBytes = 0
         plan.triggeredAlertIDs.removeAll()
         tracker.resetBaseline()
@@ -361,7 +392,7 @@ final class AppStore: ObservableObject {
 
     private func measuredPlanUsage(in interval: DateInterval) -> UInt64 {
         dailyRecords
-            .filter { interval.contains($0.date) }
+            .filter { ($0.date >= interval.start && $0.date < interval.end) }
             .reduce(UInt64(0)) { partial, record in
                 saturatingAdd(partial, record.cellularTotalBytes)
             }
@@ -390,6 +421,7 @@ final class AppStore: ObservableObject {
 }
 
 private final class NotificationService {
+    var enabled = true
     func requestAuthorization() async -> Bool {
         do {
             return try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
@@ -399,6 +431,7 @@ private final class NotificationService {
     }
 
     func postUsageAlert(event: UsageAlertEvent, planName: String, locale: Locale) {
+        guard enabled else { return }
         let content = UNMutableNotificationContent()
         content.title = AppLocalization.string("notification_usage_title", locale: locale)
         content.body = String(

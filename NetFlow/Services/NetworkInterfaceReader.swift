@@ -6,61 +6,25 @@ import CFNetwork
 
 final class NetworkInterfaceReader {
     func read() -> NetworkSnapshot {
-        var interfaceList: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&interfaceList) == 0, let first = interfaceList else {
-            return NetworkSnapshot(wifi: .zero, cellular: .zero, timestamp: Date())
+        guard let reading = InterfaceCounters.read() else {
+            return NetworkSnapshot(wifi: .zero, cellular: .zero, timestamp: Date(), readSucceeded: false)
         }
-        defer { freeifaddrs(first) }
-
-        var wifi = NetworkCounter.zero
-        var cellular = NetworkCounter.zero
-        var wifiInterfaces: [String: NetworkCounter] = [:]
-        var cellularInterfaces: [String: NetworkCounter] = [:]
-        var cursor: UnsafeMutablePointer<ifaddrs>? = first
-
-        while let interface = cursor {
-            let item = interface.pointee
-            let name = String(cString: item.ifa_name)
-
-            if let rawData = item.ifa_data {
-                let data = rawData.assumingMemoryBound(to: if_data.self).pointee
-                let counter = NetworkCounter(
-                    received: UInt64(data.ifi_ibytes),
-                    sent: UInt64(data.ifi_obytes)
-                )
-
-                if name == "en0" {
-                    wifiInterfaces[name] = counter
-                    wifi = Self.saturatingAdd(wifi, counter)
-                } else if name.hasPrefix("pdp_ip") {
-                    cellularInterfaces[name] = counter
-                    cellular = Self.saturatingAdd(cellular, counter)
-                }
+        func counters(_ values: [String: InterfaceCounters.Counter]) -> [String: NetworkCounter] {
+            values.mapValues { NetworkCounter(received: $0.received, sent: $0.sent) }
+        }
+        func total(_ values: [String: NetworkCounter]) -> NetworkCounter {
+            values.values.reduce(.zero) {
+                NetworkCounter(received: InterfaceCounters.add($0.received, $1.received),
+                               sent: InterfaceCounters.add($0.sent, $1.sent))
             }
-
-            cursor = item.ifa_next
         }
-
-        return NetworkSnapshot(
-            wifi: wifi,
-            cellular: cellular,
-            timestamp: Date(),
-            wifiInterfaces: wifiInterfaces,
-            cellularInterfaces: cellularInterfaces
-        )
+        let wifi = counters(reading.wifi)
+        let cellular = counters(reading.cellular)
+        return NetworkSnapshot(wifi: total(wifi), cellular: total(cellular), timestamp: Date(),
+                               wifiInterfaces: wifi, cellularInterfaces: cellular,
+                               counterBits: reading.bits, bootTime: InterfaceCounters.bootTime())
     }
 
-    private static func saturatingAdd(_ lhs: NetworkCounter, _ rhs: NetworkCounter) -> NetworkCounter {
-        NetworkCounter(
-            received: saturatingAdd(lhs.received, rhs.received),
-            sent: saturatingAdd(lhs.sent, rhs.sent)
-        )
-    }
-
-    private static func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
-        let (value, overflow) = lhs.addingReportingOverflow(rhs)
-        return overflow ? UInt64.max : value
-    }
 }
 
 @MainActor

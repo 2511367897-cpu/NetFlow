@@ -23,18 +23,31 @@ struct NetworkSnapshot: Codable, Hashable {
     var wifiInterfaces: [String: NetworkCounter]?
     var cellularInterfaces: [String: NetworkCounter]?
 
+    var counterBits: Int?
+    var bootTime: TimeInterval?
+    var readSucceeded: Bool?
+    // Last observed values survive temporary disappearance of an interface.
+    var rememberedWiFiInterfaces: [String: NetworkCounter]?
+    var rememberedCellularInterfaces: [String: NetworkCounter]?
+
     init(
         wifi: NetworkCounter,
         cellular: NetworkCounter,
         timestamp: Date,
         wifiInterfaces: [String: NetworkCounter]? = nil,
-        cellularInterfaces: [String: NetworkCounter]? = nil
+        cellularInterfaces: [String: NetworkCounter]? = nil,
+        counterBits: Int? = nil,
+        bootTime: TimeInterval? = nil,
+        readSucceeded: Bool? = nil
     ) {
         self.wifi = wifi
         self.cellular = cellular
         self.timestamp = timestamp
         self.wifiInterfaces = wifiInterfaces
         self.cellularInterfaces = cellularInterfaces
+        self.counterBits = counterBits
+        self.bootTime = bootTime
+        self.readSucceeded = readSucceeded
     }
 
     static let zero = NetworkSnapshot(

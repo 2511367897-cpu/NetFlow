@@ -56,11 +56,15 @@ struct DataPlan: Codable, Hashable {
     var usageCorrectionBytes: Int64?
     var lastCalibrationDate: Date?
     var lastCalibrationTargetBytes: UInt64?
+    // Exact unsigned anchor also handles the full UInt64 range without
+    // truncating a signed correction. Older offsets keep their prior meaning.
+    var calibrationMeasuredBytes: UInt64?
 
     var activeCycleStart = Calendar.current.startOfDay(for: Date())
     var activeCycleEnd = Calendar.current.date(byAdding: .month, value: 1, to: Calendar.current.startOfDay(for: Date())) ?? Date()
     var alertThresholds: [AlertThreshold] = [
         AlertThreshold(kind: .percentUsed, value: 80),
+        AlertThreshold(kind: .percentUsed, value: 90),
         AlertThreshold(kind: .percentUsed, value: 95),
         AlertThreshold(kind: .remainingBytes, value: 500_000_000)
     ]
@@ -85,6 +89,17 @@ struct DataPlan: Codable, Hashable {
         if includeManual {
             let (sum, overflow) = value.addingReportingOverflow(manualUsedBytes)
             value = overflow ? UInt64.max : sum
+        }
+
+        if let baseline = calibrationMeasuredBytes, let target = lastCalibrationTargetBytes {
+            let adjusted: UInt64
+            if measuredBytes >= baseline {
+                adjusted = InterfaceCounters.add(target, measuredBytes - baseline)
+            } else {
+                let difference = baseline - measuredBytes
+                adjusted = target > difference ? target - difference : 0
+            }
+            return includeManual ? InterfaceCounters.add(adjusted, manualUsedBytes) : adjusted
         }
 
         let correction = usageCorrectionBytes ?? 0
@@ -149,7 +164,7 @@ struct DataPlan: Codable, Hashable {
         guard !isUnlimited else { return UInt64.max }
         let interval = cycleInterval(containing: date)
         let measured = records
-            .filter { interval.contains($0.date) }
+            .filter { ($0.date >= interval.start && $0.date < interval.end) }
             .reduce(UInt64(0)) { partial, record in
                 let (sum, overflow) = partial.addingReportingOverflow(record.cellularTotalBytes)
                 return overflow ? UInt64.max : sum
@@ -167,7 +182,7 @@ struct DataPlan: Codable, Hashable {
         let interval = cycleInterval(containing: date)
         let boundedNow = min(max(date, interval.start), interval.end)
         let measured = records
-            .filter { interval.contains($0.date) && $0.date <= boundedNow }
+            .filter { ($0.date >= interval.start && $0.date < interval.end) && $0.date <= boundedNow }
             .reduce(UInt64(0)) { partial, record in
                 let (sum, overflow) = partial.addingReportingOverflow(record.cellularTotalBytes)
                 return overflow ? UInt64.max : sum

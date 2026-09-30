@@ -22,6 +22,20 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Run accounting and calibration tests
+        run: |
+          set -o pipefail
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if x["isAvailable"] and x["name"].startswith("iPhone")))')
+          xcodebuild \
+            -project NetFlow.xcodeproj \
+            -scheme NetFlow \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$DEVICE_ID" \
+            -parallel-testing-enabled NO \
+            -derivedDataPath test-build \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+
       - name: Build unsigned iOS app
         run: |
           set -o pipefail
@@ -42,12 +56,13 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/NetFlow.app Payload/
-          /usr/bin/zip -qry NetFlow-4.2.14-build43-unsigned.ipa Payload
-          ls -lh NetFlow-4.2.14-build43-unsigned.ipa
+          /usr/bin/zip -qry NetFlow-4.2.15-build44-unsigned.ipa Payload
+          sh Tools/validate_ipa.sh NetFlow-4.2.15-build44-unsigned.ipa
+          ls -lh NetFlow-4.2.15-build44-unsigned.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NetFlow-4.2.14-build43-unsigned
-          path: NetFlow-4.2.14-build43-unsigned.ipa
+          name: NetFlow-4.2.15-build44-unsigned
+          path: NetFlow-4.2.15-build44-unsigned.ipa
           if-no-files-found: error

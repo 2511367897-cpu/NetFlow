@@ -14,7 +14,7 @@ private enum WidgetPlanSettings {
     private static let editingKey = "self.plan.editing"
 
     static var capacityGB: Int { max(1, min(100_000, defaults.object(forKey: capacityKey) as? Int ?? 30)) }
-    static var resetDay: Int { max(1, min(28, defaults.object(forKey: resetDayKey) as? Int ?? 1)) }
+    static var resetDay: Int { max(1, min(31, defaults.object(forKey: resetDayKey) as? Int ?? 1)) }
     static var unlimited: Bool { defaults.bool(forKey: unlimitedKey) }
     static var configured: Bool { defaults.bool(forKey: configuredKey) }
     static var editing: Bool { !configured || defaults.bool(forKey: editingKey) }
@@ -30,7 +30,7 @@ private enum WidgetPlanSettings {
     }
 
     static func adjustResetDay(_ delta: Int) {
-        defaults.set(max(1, min(28, resetDay + delta)), forKey: resetDayKey)
+        defaults.set(max(1, min(31, resetDay + delta)), forKey: resetDayKey)
         reload()
     }
 
@@ -108,10 +108,7 @@ struct ToggleWidgetEditingIntent: AppIntent {
     }
 }
 
-private struct RawInterfaceCounter: Codable {
-    var received: UInt64
-    var sent: UInt64
-}
+private typealias RawInterfaceCounter = InterfaceCounters.Counter
 
 private struct RawCounters: Codable {
     var wifiReceived: UInt64
@@ -120,15 +117,10 @@ private struct RawCounters: Codable {
     var cellularSent: UInt64
     var wifiInterfaces: [String: RawInterfaceCounter]
     var cellularInterfaces: [String: RawInterfaceCounter]
-
-    static let zero = RawCounters(
-        wifiReceived: 0,
-        wifiSent: 0,
-        cellularReceived: 0,
-        cellularSent: 0,
-        wifiInterfaces: [:],
-        cellularInterfaces: [:]
-    )
+    var counterBits: Int?
+    var bootTime: TimeInterval?
+    var rememberedWiFi: [String: RawInterfaceCounter]?
+    var rememberedCellular: [String: RawInterfaceCounter]?
 }
 
 private struct TrafficDelta {
@@ -137,9 +129,9 @@ private struct TrafficDelta {
     var cellularReceived: UInt64
     var cellularSent: UInt64
 
-    var wifiTotal: UInt64 { wifiReceived &+ wifiSent }
-    var cellularTotal: UInt64 { cellularReceived &+ cellularSent }
-    var total: UInt64 { wifiTotal &+ cellularTotal }
+    var wifiTotal: UInt64 { InterfaceCounters.add(wifiReceived, wifiSent) }
+    var cellularTotal: UInt64 { InterfaceCounters.add(cellularReceived, cellularSent) }
+    var total: UInt64 { InterfaceCounters.add(wifiTotal, cellularTotal) }
 
     static let zero = TrafficDelta(
         wifiReceived: 0,
@@ -168,46 +160,17 @@ private struct DailyBucket: Codable {
 
 private enum RawCounterReader {
     static func read() -> RawCounters? {
-        var interfaceList: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&interfaceList) == 0, let first = interfaceList else {
-            return nil
+        guard let reading = InterfaceCounters.read() else { return nil }
+        func received(_ values: [String: RawInterfaceCounter]) -> UInt64 {
+            values.values.reduce(0) { InterfaceCounters.add($0, $1.received) }
         }
-        defer { freeifaddrs(first) }
-
-        var result = RawCounters.zero
-        var cursor: UnsafeMutablePointer<ifaddrs>? = first
-
-        while let interface = cursor {
-            let item = interface.pointee
-            let name = String(cString: item.ifa_name)
-
-            if item.ifa_addr?.pointee.sa_family == UInt8(AF_LINK), let rawData = item.ifa_data {
-                let data = rawData.assumingMemoryBound(to: if_data.self).pointee
-                let counter = RawInterfaceCounter(
-                    received: UInt64(data.ifi_ibytes),
-                    sent: UInt64(data.ifi_obytes)
-                )
-
-                if name == "en0" {
-                    result.wifiInterfaces[name] = counter
-                    result.wifiReceived = saturatingAdd(result.wifiReceived, counter.received)
-                    result.wifiSent = saturatingAdd(result.wifiSent, counter.sent)
-                } else if name.hasPrefix("pdp_ip") {
-                    result.cellularInterfaces[name] = counter
-                    result.cellularReceived = saturatingAdd(result.cellularReceived, counter.received)
-                    result.cellularSent = saturatingAdd(result.cellularSent, counter.sent)
-                }
-            }
-
-            cursor = item.ifa_next
+        func sent(_ values: [String: RawInterfaceCounter]) -> UInt64 {
+            values.values.reduce(0) { InterfaceCounters.add($0, $1.sent) }
         }
-
-        return result
-    }
-
-    private static func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
-        let (value, overflow) = lhs.addingReportingOverflow(rhs)
-        return overflow ? UInt64.max : value
+        return RawCounters(wifiReceived: received(reading.wifi), wifiSent: sent(reading.wifi),
+                           cellularReceived: received(reading.cellular), cellularSent: sent(reading.cellular),
+                           wifiInterfaces: reading.wifi, cellularInterfaces: reading.cellular,
+                           counterBits: reading.bits, bootTime: InterfaceCounters.bootTime())
     }
 }
 
@@ -236,377 +199,252 @@ private struct UsageSnapshot {
 }
 
 private enum WidgetTrafficStore {
-    private enum Key {
-        static let rawWiFiReceived = "self.raw.wifi.received"
-        static let rawWiFiSent = "self.raw.wifi.sent"
-        static let rawCellularReceived = "self.raw.cellular.received"
-        static let rawCellularSent = "self.raw.cellular.sent"
-        static let rawTimestamp = "self.raw.timestamp"
-        static let rawAvailable = "self.raw.available"
-        static let rawSnapshotV3 = "self.raw.snapshot.v3"
-        static let hasMeasurement = "self.hasMeasurement"
-        static let allTimeTotal = "self.alltime.total"
-        static let rateDown = "self.rate.down"
-        static let rateUp = "self.rate.up"
-        static let updatedAt = "self.updatedAt"
-        static let dailyBuckets = "self.dailyBuckets.v2"
+    private struct State: Codable {
+        var raw: RawCounters?
+        var timestamp: Date?
+        var buckets: [String: DailyBucket] = [:]
+        var allTime: UInt64 = 0
+        var down: Double = 0
+        var up: Double = 0
+        var hasMeasurement = false
+        var calibrationCycle: Date?
+        var calibrationRaw: UInt64?
+        var calibrationTarget: UInt64?
+    }
+    private static let defaults = UserDefaults.standard
+    private static let stateKey = "self.traffic.state.v4"
+    private static let sampleLock = NSLock()
+    private static var calendar: Calendar { Calendar.current }
+
+    private static func loadState() -> State {
+        if let data = defaults.data(forKey: stateKey),
+           let state = try? JSONDecoder().decode(State.self, from: data) { return state }
+        var state = State()
+        // Preserve the previous widget's real daily history. Legacy baseline
+        // changes width on upgrade, so the first successful read only seeds it.
+        if let data = defaults.data(forKey: "self.dailyBuckets.v2"),
+           let buckets = try? JSONDecoder().decode([String: DailyBucket].self, from: data) {
+            state.buckets = buckets
+        }
+        if let data = defaults.data(forKey: "self.raw.snapshot.v3") {
+            state.raw = try? JSONDecoder().decode(RawCounters.self, from: data)
+        }
+        let stamp = defaults.double(forKey: "self.raw.timestamp")
+        state.timestamp = stamp > 0 ? Date(timeIntervalSince1970: stamp) : nil
+        state.allTime = (defaults.object(forKey: "self.alltime.total") as? NSNumber)?.uint64Value ?? 0
+        state.hasMeasurement = defaults.bool(forKey: "self.hasMeasurement")
+        return state
     }
 
-    private static let defaults = UserDefaults.standard
-    private static let calendar = Calendar.current
-    private static let sampleLock = NSLock()
+    private static func saveState(_ state: State) {
+        // Baseline and committed usage are one Codable value, avoiding replay
+        // when an extension is killed between several UserDefaults writes.
+        guard let data = try? JSONEncoder().encode(state) else { return }
+        defaults.set(data, forKey: stateKey)
+    }
 
     static func forceRefresh() async {
-        sampleCurrent(now: Date())
-
-        do {
-            try await Task.sleep(nanoseconds: 800_000_000)
-        } catch {
-            return
-        }
-
-        sampleCurrent(now: Date())
+        _ = sampleAndLoad(planCapacityGB: Double(WidgetPlanSettings.capacityGB),
+                          resetDay: WidgetPlanSettings.resetDay, unlimited: WidgetPlanSettings.unlimited)
+        do { try await Task.sleep(nanoseconds: 800_000_000) } catch { return }
+        _ = sampleAndLoad(planCapacityGB: Double(WidgetPlanSettings.capacityGB),
+                          resetDay: WidgetPlanSettings.resetDay, unlimited: WidgetPlanSettings.unlimited)
     }
 
-    private static func sampleCurrent(now: Date) {
+    static func calibrate(to target: UInt64) -> Bool {
         sampleLock.lock()
         defer { sampleLock.unlock() }
-        if let current = RawCounterReader.read() {
-            consume(current: current, now: now)
-        }
+        let now = Date()
+        var state = loadState()
+        guard consume(state: &state, now: now) else { return false }
+        let cycle = currentCycleStart(now: now, resetDay: WidgetPlanSettings.resetDay)
+        state.calibrationCycle = cycle
+        state.calibrationRaw = rawPlanUsed(state: state, start: cycle, now: now)
+        state.calibrationTarget = target
+        saveState(state)
+        return true
     }
 
-    private static func consume(current: RawCounters, now: Date) {
-        let currentTimestamp = now.timeIntervalSince1970
-
-        if defaults.bool(forKey: Key.rawAvailable) {
-            let previousTimestamp = defaults.double(forKey: Key.rawTimestamp)
-            var result: (delta: TrafficDelta, stableForRate: Bool)?
-
-            if let previous = loadRawSnapshot() {
-                result = interfaceAwareDelta(current: current, previous: previous)
-            } else {
-                // One-time migration from older widget builds that persisted only
-                // aggregate counters. Do not guess across a regression.
-                let previous = RawCounters(
-                    wifiReceived: storedBytes(Key.rawWiFiReceived),
-                    wifiSent: storedBytes(Key.rawWiFiSent),
-                    cellularReceived: storedBytes(Key.rawCellularReceived),
-                    cellularSent: storedBytes(Key.rawCellularSent),
-                    wifiInterfaces: [:],
-                    cellularInterfaces: [:]
-                )
-                if countersAreValid(current: current, previous: previous) {
-                    result = (
-                        TrafficDelta(
-                            wifiReceived: current.wifiReceived - previous.wifiReceived,
-                            wifiSent: current.wifiSent - previous.wifiSent,
-                            cellularReceived: current.cellularReceived - previous.cellularReceived,
-                            cellularSent: current.cellularSent - previous.cellularSent
-                        ),
-                        true
-                    )
-                }
-            }
-
-            if previousTimestamp > 0,
-               previousTimestamp < currentTimestamp,
-               let result {
-                record(delta: result.delta, from: Date(timeIntervalSince1970: previousTimestamp), to: now)
-                defaults.set(true, forKey: Key.hasMeasurement)
-
-                let elapsed = currentTimestamp - previousTimestamp
-                if elapsed >= 0.2 && elapsed <= 10 && result.stableForRate {
-                    defaults.set(
-                        Double(saturatingAdd(result.delta.wifiReceived, result.delta.cellularReceived)) / elapsed,
-                        forKey: Key.rateDown
-                    )
-                    defaults.set(
-                        Double(saturatingAdd(result.delta.wifiSent, result.delta.cellularSent)) / elapsed,
-                        forKey: Key.rateUp
-                    )
-                } else {
-                    defaults.set(0, forKey: Key.rateDown)
-                    defaults.set(0, forKey: Key.rateUp)
-                }
-            } else {
-                defaults.set(0, forKey: Key.rateDown)
-                defaults.set(0, forKey: Key.rateUp)
-            }
-        }
-
-        saveRawSnapshot(current)
-        defaults.set(NSNumber(value: current.wifiReceived), forKey: Key.rawWiFiReceived)
-        defaults.set(NSNumber(value: current.wifiSent), forKey: Key.rawWiFiSent)
-        defaults.set(NSNumber(value: current.cellularReceived), forKey: Key.rawCellularReceived)
-        defaults.set(NSNumber(value: current.cellularSent), forKey: Key.rawCellularSent)
-        defaults.set(currentTimestamp, forKey: Key.rawTimestamp)
-        defaults.set(true, forKey: Key.rawAvailable)
-        defaults.set(currentTimestamp, forKey: Key.updatedAt)
-    }
-
-    static func sampleAndLoad(
-        planCapacityGB: Double,
-        resetDay: Int,
-        unlimited: Bool,
-        now: Date = Date()
-    ) -> UsageSnapshot {
+    static func sampleAndLoad(planCapacityGB: Double, resetDay: Int, unlimited: Bool,
+                              now: Date = Date()) -> UsageSnapshot {
         sampleLock.lock()
         defer { sampleLock.unlock() }
-        if let current = RawCounterReader.read() {
-            consume(current: current, now: now)
+        var state = loadState()
+        consume(state: &state, now: now)
+        let cycle = currentCycleStart(now: now, resetDay: resetDay)
+        if state.calibrationCycle != nil && state.calibrationCycle != cycle {
+            state.calibrationCycle = nil
+            state.calibrationRaw = nil
+            state.calibrationTarget = nil
         }
-        return load(planCapacityGB: planCapacityGB, resetDay: resetDay,
-                    unlimited: unlimited, now: now)
-    }
-
-    private static func load(
-        planCapacityGB: Double,
-        resetDay requestedResetDay: Int,
-        unlimited: Bool,
-        now: Date = Date()
-    ) -> UsageSnapshot {
-        let buckets = loadBuckets()
-        let todayKey = key(for: now)
-        let today = buckets[todayKey] ?? DailyBucket()
-
-        let monthInterval = currentMonthInterval(now)
-        let monthBuckets = buckets.compactMap { key, bucket -> DailyBucket? in
-            guard let date = date(from: key), monthInterval.contains(date) else { return nil }
+        saveState(state)
+        let today = state.buckets[key(for: now)] ?? DailyBucket()
+        let month = currentMonthInterval(now)
+        let monthBuckets = state.buckets.compactMap { key, bucket -> DailyBucket? in
+            guard let date = date(from: key), date >= month.start, date < month.end else { return nil }
             return bucket
         }
-
-        let monthTotal = monthBuckets.reduce(UInt64(0)) { saturatingAdd($0, $1.total) }
-        let monthCellular = monthBuckets.reduce(UInt64(0)) { saturatingAdd($0, $1.cellular) }
-        let monthWiFi = monthBuckets.reduce(UInt64(0)) { saturatingAdd($0, $1.wifi) }
-
-        let resetDay = min(max(requestedResetDay, 1), 28)
-        let cycleStart = currentCycleStart(now: now, resetDay: resetDay)
-        let planUsed = buckets.compactMap { key, bucket -> UInt64? in
-            guard let date = date(from: key), date >= cycleStart && date <= now else { return nil }
-            return bucket.cellular
-        }.reduce(UInt64(0), saturatingAdd)
-
-        let safeGB = planCapacityGB.isFinite
-            ? min(max(planCapacityGB, 0), 100_000)
-            : 0
+        let monthWiFi = monthBuckets.reduce(UInt64(0)) { InterfaceCounters.add($0, $1.wifi) }
+        var monthCellular = monthBuckets.reduce(UInt64(0)) { InterfaceCounters.add($0, $1.cellular) }
+        let measured = rawPlanUsed(state: state, start: cycle, now: now)
+        var used = measured
+        if state.calibrationCycle == cycle, let raw = state.calibrationRaw, let target = state.calibrationTarget {
+            used = measured >= raw ? InterfaceCounters.add(target, measured - raw)
+                : (target > raw - measured ? target - (raw - measured) : 0)
+        }
+        if cycle == month.start { monthCellular = used }
+        let safeGB = planCapacityGB.isFinite ? min(max(planCapacityGB, 0), 100_000) : 0
         let capacity = unlimited ? UInt64(0) : UInt64(safeGB * 1_000_000_000)
-        let remaining = unlimited ? 0 : (capacity > planUsed ? capacity - planUsed : 0)
-
-        let timestamp = defaults.double(forKey: Key.updatedAt)
-
-        return UsageSnapshot(
-            todayTotal: today.total,
-            todayCellular: today.cellular,
-            todayWiFi: today.wifi,
-            monthTotal: monthTotal,
-            monthCellular: monthCellular,
-            monthWiFi: monthWiFi,
-            allTimeTotal: max(storedBytes(Key.allTimeTotal), monthTotal),
-            planCapacity: capacity,
-            planUsed: planUsed,
-            planRemaining: remaining,
-            planUnlimited: unlimited,
-            resetDay: resetDay,
-            down: defaults.double(forKey: Key.rateDown),
-            up: defaults.double(forKey: Key.rateUp),
-            updatedAt: timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : now,
-            isPreview: !defaults.bool(forKey: Key.hasMeasurement)
-        )
+        return UsageSnapshot(todayTotal: today.total, todayCellular: today.cellular, todayWiFi: today.wifi,
+                             monthTotal: InterfaceCounters.add(monthWiFi, monthCellular),
+                             monthCellular: monthCellular, monthWiFi: monthWiFi,
+                             allTimeTotal: state.allTime, planCapacity: capacity, planUsed: used,
+                             planRemaining: unlimited ? 0 : (capacity > used ? capacity - used : 0),
+                             planUnlimited: unlimited, resetDay: resetDay,
+                             down: state.down, up: state.up, updatedAt: state.timestamp ?? now,
+                             isPreview: !state.hasMeasurement)
     }
 
-    private static func record(delta: TrafficDelta, from start: Date, to end: Date) {
-        guard delta.total > 0 else { return }
-
-        let safeStart = start == .distantPast || start >= end ? end : start
-        var buckets = loadBuckets()
-        var cursor = safeStart
-        var remaining = delta
-
-        while cursor < end {
-            let dayStart = calendar.startOfDay(for: cursor)
-            let nextDay = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? end
-            let segmentEnd = min(end, nextDay)
-            let isLast = segmentEnd >= end
-
-            let segment: TrafficDelta
-            if isLast {
-                segment = remaining
-            } else {
-                let remainingDuration = max(end.timeIntervalSince(cursor), 0.001)
-                let fraction = min(max(segmentEnd.timeIntervalSince(cursor) / remainingDuration, 0), 1)
-
-                func portion(_ value: UInt64) -> UInt64 {
-                    let scaled = (Double(value) * fraction).rounded()
-                    return scaled >= Double(UInt64.max) ? value : UInt64(max(scaled, 0))
+    @discardableResult
+    private static func consume(state: inout State, now: Date) -> Bool {
+        guard var current = RawCounterReader.read() else { state.down = 0; state.up = 0; return false }
+        state.down = 0
+        state.up = 0
+        if let previous = state.raw, let stamp = state.timestamp {
+            let rebooted = current.bootTime != nil && previous.bootTime != nil
+                && abs(current.bootTime! - previous.bootTime!) > 1
+            let wifiMemory = rebooted ? [:] : (previous.rememberedWiFi ?? previous.wifiInterfaces)
+            let cellularMemory = rebooted ? [:] : (previous.rememberedCellular ?? previous.cellularInterfaces)
+            current.rememberedWiFi = wifiMemory.merging(current.wifiInterfaces) { _, new in new }
+            current.rememberedCellular = cellularMemory.merging(current.cellularInterfaces) { _, new in new }
+            if current.counterBits == previous.counterBits || rebooted {
+                let wifi = difference(current: current.wifiInterfaces, previous: wifiMemory, bits: current.counterBits ?? 32)
+                let cellular = difference(current: current.cellularInterfaces, previous: cellularMemory, bits: current.counterBits ?? 32)
+                let delta = TrafficDelta(wifiReceived: wifi.0, wifiSent: wifi.1,
+                                         cellularReceived: cellular.0, cellularSent: cellular.1)
+                let start = rebooted ? max(stamp, Date(timeIntervalSince1970: current.bootTime!)) : stamp
+                record(delta: delta, from: start, to: now, state: &state)
+                state.hasMeasurement = true
+                let elapsed = now.timeIntervalSince(stamp)
+                if !rebooted, elapsed >= 0.2, elapsed <= 10, wifi.2, cellular.2,
+                   current.wifiInterfaces.keys.sorted() == previous.wifiInterfaces.keys.sorted(),
+                   current.cellularInterfaces.keys.sorted() == previous.cellularInterfaces.keys.sorted() {
+                    state.down = Double(InterfaceCounters.add(delta.wifiReceived, delta.cellularReceived)) / elapsed
+                    state.up = Double(InterfaceCounters.add(delta.wifiSent, delta.cellularSent)) / elapsed
                 }
-
-                segment = TrafficDelta(
-                    wifiReceived: portion(remaining.wifiReceived),
-                    wifiSent: portion(remaining.wifiSent),
-                    cellularReceived: portion(remaining.cellularReceived),
-                    cellularSent: portion(remaining.cellularSent)
-                )
-                remaining = TrafficDelta(
-                    wifiReceived: remaining.wifiReceived - segment.wifiReceived,
-                    wifiSent: remaining.wifiSent - segment.wifiSent,
-                    cellularReceived: remaining.cellularReceived - segment.cellularReceived,
-                    cellularSent: remaining.cellularSent - segment.cellularSent
-                )
+            } else {
+                current.rememberedWiFi = nil
+                current.rememberedCellular = nil
             }
-
-            let bucketKey = key(for: cursor)
-            var bucket = buckets[bucketKey] ?? DailyBucket()
-            bucket.add(total: segment.total, cellular: segment.cellularTotal, wifi: segment.wifiTotal)
-            buckets[bucketKey] = bucket
-            cursor = segmentEnd
         }
-
-        let oldAllTime = storedBytes(Key.allTimeTotal)
-        defaults.set(NSNumber(value: saturatingAdd(oldAllTime, delta.total)), forKey: Key.allTimeTotal)
-
-        prune(&buckets, keepingDays: 400, now: end)
-        saveBuckets(buckets)
+        state.raw = current
+        state.timestamp = now
+        return true
     }
 
-    private static func loadBuckets() -> [String: DailyBucket] {
-        guard let data = defaults.data(forKey: Key.dailyBuckets),
-              let decoded = try? JSONDecoder().decode([String: DailyBucket].self, from: data) else {
-            return [:]
+    private static func difference(current: [String: RawInterfaceCounter], previous: [String: RawInterfaceCounter],
+                                   bits: Int) -> (UInt64, UInt64, Bool) {
+        var received: UInt64 = 0
+        var sent: UInt64 = 0
+        var stable = true
+        for (name, value) in current {
+            if let old = previous[name] {
+                received = InterfaceCounters.add(received, InterfaceCounters.difference(current: value.received, previous: old.received, bits: bits))
+                sent = InterfaceCounters.add(sent, InterfaceCounters.difference(current: value.sent, previous: old.sent, bits: bits))
+                stable = stable && value.received >= old.received && value.sent >= old.sent
+            } else {
+                received = InterfaceCounters.add(received, value.received)
+                sent = InterfaceCounters.add(sent, value.sent)
+                stable = false
+            }
         }
-        return decoded
+        return (received, sent, stable)
     }
 
-    private static func saveBuckets(_ buckets: [String: DailyBucket]) {
-        guard let data = try? JSONEncoder().encode(buckets) else { return }
-        defaults.set(data, forKey: Key.dailyBuckets)
+    private static func rawPlanUsed(state: State, start: Date, now: Date) -> UInt64 {
+        state.buckets.reduce(UInt64(0)) { total, pair in
+            guard let date = date(from: pair.key), date >= start, date <= now else { return total }
+            return InterfaceCounters.add(total, pair.value.cellular)
+        }
     }
 
-    private static func prune(_ buckets: inout [String: DailyBucket], keepingDays: Int, now: Date) {
-        guard let cutoff = calendar.date(byAdding: .day, value: -keepingDays, to: calendar.startOfDay(for: now)) else {
-            return
+    private static func record(delta: TrafficDelta, from start: Date, to end: Date, state: inout State) {
+        guard delta.total > 0 else { return }
+        func add(_ part: TrafficDelta, at date: Date) {
+            let name = key(for: date)
+            var bucket = state.buckets[name] ?? DailyBucket()
+            bucket.add(total: part.total, cellular: part.cellularTotal, wifi: part.wifiTotal)
+            state.buckets[name] = bucket
         }
-        buckets = buckets.filter { key, _ in
-            guard let date = date(from: key) else { return false }
-            return date >= cutoff
+        if start >= end {
+            add(delta, at: end)
+        } else {
+            var cursor = start
+            var remaining = delta
+            while cursor < end {
+                let boundary = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: cursor)) ?? end
+                let segmentEnd = min(end, boundary)
+                let fraction = segmentEnd.timeIntervalSince(cursor) / end.timeIntervalSince(cursor)
+                func portion(_ value: UInt64) -> UInt64 {
+                    if segmentEnd >= end { return value }
+                    let scaled = (Double(value) * fraction).rounded()
+                    return scaled >= Double(UInt64.max) ? value : min(value, UInt64(max(scaled, 0)))
+                }
+                let part = TrafficDelta(wifiReceived: portion(remaining.wifiReceived), wifiSent: portion(remaining.wifiSent),
+                                        cellularReceived: portion(remaining.cellularReceived), cellularSent: portion(remaining.cellularSent))
+                add(part, at: cursor)
+                remaining = TrafficDelta(wifiReceived: remaining.wifiReceived - part.wifiReceived,
+                                         wifiSent: remaining.wifiSent - part.wifiSent,
+                                         cellularReceived: remaining.cellularReceived - part.cellularReceived,
+                                         cellularSent: remaining.cellularSent - part.cellularSent)
+                cursor = segmentEnd
+            }
         }
+        state.allTime = InterfaceCounters.add(state.allTime, delta.total)
+        // Do not prune: long custom/yearly cycles and existing history need these records.
     }
 
     private static func currentMonthInterval(_ now: Date) -> DateInterval {
-        let start = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? calendar.startOfDay(for: now)
-        let end = calendar.date(byAdding: .month, value: 1, to: start) ?? now
-        return DateInterval(start: start, end: end)
+        let start = calendar.date(from: calendar.dateComponents([.year, .month], from: now))!
+        return DateInterval(start: start, end: calendar.date(byAdding: .month, value: 1, to: start)!)
     }
 
     private static func currentCycleStart(now: Date, resetDay: Int) -> Date {
-        let components = calendar.dateComponents([.year, .month], from: now)
-        let year = components.year ?? 2001
-        let month = components.month ?? 1
-
-        func start(year: Int, month: Int) -> Date {
-            calendar.date(from: DateComponents(year: year, month: month, day: resetDay)) ?? now
+        let month = currentMonthInterval(now).start
+        func boundary(_ month: Date) -> Date {
+            let last = calendar.range(of: .day, in: .month, for: month)!.count
+            return calendar.date(byAdding: .day, value: min(max(resetDay, 1), last) - 1, to: month)!
         }
-
-        let thisMonth = start(year: year, month: month)
-        if now >= thisMonth {
-            return thisMonth
-        }
-
-        let previousMonthAnchor = calendar.date(byAdding: .month, value: -1, to: thisMonth) ?? now
-        let previous = calendar.dateComponents([.year, .month], from: previousMonthAnchor)
-        return start(year: previous.year ?? year, month: previous.month ?? month)
+        let current = boundary(month)
+        return now >= current ? current : boundary(calendar.date(byAdding: .month, value: -1, to: month)!)
     }
 
     private static func key(for date: Date) -> String {
         let c = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
-
     private static func date(from key: String) -> Date? {
         let parts = key.split(separator: "-").compactMap { Int($0) }
         guard parts.count == 3 else { return nil }
         return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
     }
+}
 
-    private static func interfaceAwareDelta(
-        current: RawCounters,
-        previous: RawCounters
-    ) -> (delta: TrafficDelta, stableForRate: Bool) {
-        let wifi = interfaceDelta(current: current.wifiInterfaces, previous: previous.wifiInterfaces)
-        let cellular = interfaceDelta(current: current.cellularInterfaces, previous: previous.cellularInterfaces)
-
-        return (
-            TrafficDelta(
-                wifiReceived: wifi.received,
-                wifiSent: wifi.sent,
-                cellularReceived: cellular.received,
-                cellularSent: cellular.sent
-            ),
-            wifi.stable && cellular.stable
-        )
-    }
-
-    private static func interfaceDelta(
-        current: [String: RawInterfaceCounter],
-        previous: [String: RawInterfaceCounter]
-    ) -> (received: UInt64, sent: UInt64, stable: Bool) {
-        var received: UInt64 = 0
-        var sent: UInt64 = 0
-        var stable = true
-
-        for (name, currentCounter) in current {
-            if let previousCounter = previous[name] {
-                if currentCounter.received >= previousCounter.received {
-                    received = saturatingAdd(received, currentCounter.received - previousCounter.received)
-                } else {
-                    received = saturatingAdd(received, currentCounter.received)
-                    stable = false
-                }
-
-                if currentCounter.sent >= previousCounter.sent {
-                    sent = saturatingAdd(sent, currentCounter.sent - previousCounter.sent)
-                } else {
-                    sent = saturatingAdd(sent, currentCounter.sent)
-                    stable = false
-                }
-            } else {
-                received = saturatingAdd(received, currentCounter.received)
-                sent = saturatingAdd(sent, currentCounter.sent)
-                stable = false
-            }
+// Available in Shortcuts with a numeric input; no App Group entitlement is needed.
+struct CalibrateWidgetUsageIntent: AppIntent {
+    static var title: LocalizedStringResource = "校准小组件套餐已用"
+    static var description = IntentDescription("企业证书版组件独立统计。输入运营商本周期已用 GB；不修改每日历史。")
+    static var openAppWhenRun = false
+    @Parameter(title: "运营商已用 GB") var usedGB: Double
+    init() { usedGB = 0 }
+    func perform() async throws -> some IntentResult {
+        guard usedGB.isFinite, usedGB >= 0, usedGB <= 100_000 else { return .result() }
+        guard WidgetTrafficStore.calibrate(to: UInt64((usedGB * 1_000_000_000).rounded())) else {
+            throw NSError(domain: "NetFlow", code: 1,
+                          userInfo: [NSLocalizedDescriptionKey: "网络计数读取失败，未应用校准。请稍后重试。"])
         }
-
-        if previous.keys.contains(where: { current[$0] == nil }) {
-            stable = false
-        }
-
-        return (received, sent, stable)
-    }
-
-    private static func loadRawSnapshot() -> RawCounters? {
-        guard let data = defaults.data(forKey: Key.rawSnapshotV3) else { return nil }
-        return try? JSONDecoder().decode(RawCounters.self, from: data)
-    }
-
-    private static func saveRawSnapshot(_ snapshot: RawCounters) {
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        defaults.set(data, forKey: Key.rawSnapshotV3)
-    }
-
-    private static func countersAreValid(current: RawCounters, previous: RawCounters) -> Bool {
-        current.wifiReceived >= previous.wifiReceived &&
-        current.wifiSent >= previous.wifiSent &&
-        current.cellularReceived >= previous.cellularReceived &&
-        current.cellularSent >= previous.cellularSent
-    }
-
-    private static func saturatingAdd(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
-        let (value, overflow) = lhs.addingReportingOverflow(rhs)
-        return overflow ? UInt64.max : value
-    }
-
-    private static func storedBytes(_ key: String) -> UInt64 {
-        defaults.object(forKey: key).flatMap { $0 as? NSNumber }?.uint64Value ?? 0
+        WidgetCenter.shared.reloadTimelines(ofKind: configuredWidgetKind)
+        return .result()
     }
 }
 
@@ -749,7 +587,7 @@ private struct NetFlowWidgetView: View {
     private var smallOverview: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Label("NetFlow", systemImage: "waveform.path.ecg")
+                Label("NetFlow · 独立", systemImage: "waveform.path.ecg")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.indigo)
                 Spacer()
@@ -1191,7 +1029,7 @@ struct NetFlowConfiguredWidget: Widget {
             NetFlowWidgetView(entry: entry)
         }
         .configurationDisplayName("NetFlow")
-        .description("独立统计流量；使用小组件内的设置按钮调整套餐。")
+        .description("企业证书版独立统计，不同步 App 校准；可用快捷指令“校准小组件套餐已用”。")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular, .accessoryInline])
     }
 }

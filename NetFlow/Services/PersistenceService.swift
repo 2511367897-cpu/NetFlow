@@ -9,8 +9,9 @@ struct PersistencePayload: Codable {
 }
 
 struct PersistenceService {
+    var storageURL: URL? = nil
     private var url: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("netflow-data.json")
+        storageURL ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("netflow-data.json")
     }
 
     func load() -> PersistencePayload {
@@ -51,6 +52,7 @@ struct PersistenceService {
         }
 
         do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
             return true
         } catch {

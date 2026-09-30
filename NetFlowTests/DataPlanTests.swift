@@ -105,4 +105,22 @@ final class DataPlanTests: XCTestCase {
         XCTAssertEqual(plan.adjustedUsage(measuredBytes: 1_000), 0)
     }
 
+    func testExactCalibrationAnchorSupportsUInt64Extremes() {
+        var plan = DataPlan()
+        plan.calibrationMeasuredBytes = .max
+        plan.lastCalibrationTargetBytes = 7_000_000_000
+        plan.usageCorrectionBytes = -Int64.max
+        XCTAssertEqual(plan.adjustedUsage(measuredBytes: .max), 7_000_000_000)
+        plan.calibrationMeasuredBytes = 0
+        plan.lastCalibrationTargetBytes = .max
+        XCTAssertEqual(plan.adjustedUsage(measuredBytes: 500), UInt64.max)
+    }
+
+    func testUnlimitedDoesNotHaveRemainderOrForecastLimit() {
+        var plan = DataPlan()
+        plan.cycleType = .unlimited
+        XCTAssertEqual(plan.remainingBytes(records: []), UInt64.max)
+        XCTAssertNil(plan.forecast(records: []))
+    }
+
 }

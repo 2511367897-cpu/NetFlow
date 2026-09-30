@@ -16,14 +16,14 @@ struct OverviewView: View {
 
     private var todayTotal: UInt64 { today?.totalBytes ?? 0 }
     private var todayDownload: UInt64 {
-        (today?.wifiReceived ?? 0) + (today?.cellularReceived ?? 0)
+        saturatingAdd(today?.wifiReceived ?? 0, today?.cellularReceived ?? 0)
     }
     private var todayUpload: UInt64 {
-        (today?.wifiSent ?? 0) + (today?.cellularSent ?? 0)
+        saturatingAdd(today?.wifiSent ?? 0, today?.cellularSent ?? 0)
     }
 
     private var monthRecords: [DailyUsageRecord] {
-        store.dailyRecords.filter { monthInterval.contains($0.date) }
+        store.dailyRecords.filter { ($0.date >= monthInterval.start && $0.date < monthInterval.end) }
     }
 
     private var rawMonthTotal: UInt64 {
