@@ -100,6 +100,15 @@ enum InterfaceCounters {
         return overflow ? .max : value
     }
 
+    // A transient sysctl failure may return the getifaddrs fallback. Once a
+    // 64-bit baseline exists, consuming that truncated reading would lose the
+    // entire gap on both width transitions. Keep the wide baseline (including
+    // its timestamp and remembered interfaces) until a wide read recovers.
+    // A reboot is different: the old lifetime counters no longer exist.
+    static func canAdvanceBaseline(currentBits: Int?, previousBits: Int?, rebooted: Bool) -> Bool {
+        rebooted || previousBits != 64 || currentBits != 32
+    }
+
     static func difference(current: UInt64, previous: UInt64, bits: Int) -> UInt64 {
         if current >= previous { return current - previous }
         // Only infer wrap near the end of a 32-bit counter. A small counter

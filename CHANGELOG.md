@@ -1,3 +1,10 @@
+## 4.2.16 (45)
+
+- Preserve the last 64-bit traffic baseline during temporary 32-bit fallback reads in both app and widget, recovering the full interval on the next wide reading.
+- Start traffic sampling before permission requests and connection lookups.
+- Add regression coverage for a 7.10 GB recovery across fallback reads, interface disappearance and an app restart.
+- Regenerate the checked-in Xcode project to include the shared counter reader.
+
 ## 4.2.13 (42)
 
 - Removed the App Group requirement for enterprise/resigned installations.

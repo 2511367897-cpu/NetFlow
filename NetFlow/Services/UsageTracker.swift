@@ -33,14 +33,18 @@ final class UsageTracker {
             // A failed read is not a zero counter or a new baseline.
             return SampleResult(snapshot: baseline ?? .zero, delta: .zero, rate: .zero, didRead: false)
         }
-        defer { previous = current }
-
         guard let old = baseline else {
+            previous = current
             return SampleResult(snapshot: current, delta: .zero, rate: .zero)
         }
 
         let rebooted = current.bootTime != nil && old.bootTime != nil
             && abs(current.bootTime! - old.bootTime!) > 1
+        guard InterfaceCounters.canAdvanceBaseline(currentBits: current.counterBits,
+                                                   previousBits: old.counterBits, rebooted: rebooted) else {
+            return SampleResult(snapshot: old, delta: .zero, rate: .zero, didRead: false)
+        }
+        defer { previous = current }
         let changedWidth = current.counterBits != nil && current.counterBits != old.counterBits
         if changedWidth && !rebooted {
             // Do not subtract a 32-bit fallback from a 64-bit lifetime counter.

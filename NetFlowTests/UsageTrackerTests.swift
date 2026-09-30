@@ -191,6 +191,54 @@ final class UsageTrackerTests: XCTestCase {
         XCTAssertEqual(sample.rate, .zero)
     }
 
+    func testTemporary32BitFallbackPreservesSevenGigabyteGapAcrossRestart() throws {
+        let old = interfaces(100, ["pdp_ip0": 4_000_000_000])
+        let narrowed = interfaces(200, ["pdp_ip0": 205_032_704], bits: 32)
+        let tracker = UsageTracker(reader: StubReader([narrowed, narrowed]))
+        let first = tracker.sample(previous: old)
+        XCTAssertFalse(first.didRead)
+        XCTAssertEqual(first.snapshot, old)
+        XCTAssertFalse(first.delta.isValid)
+        let second = tracker.sample(previous: first.snapshot)
+        XCTAssertEqual(second.snapshot, old)
+
+        let data = try JSONEncoder.pretty.encode(second.snapshot)
+        let restored = try JSONDecoder.netFlow.decode(NetworkSnapshot.self, from: data)
+        let wide = interfaces(86_500, ["pdp_ip0": 11_100_000_000])
+        let restarted = UsageTracker(reader: StubReader([wide, wide]))
+        let recovered = restarted.sample(previous: restored)
+        XCTAssertTrue(recovered.didRead)
+        XCTAssertEqual(recovered.delta.cellularReceived, 7_100_000_000)
+        XCTAssertEqual(recovered.rate, .zero)
+        XCTAssertEqual(restarted.sample(previous: recovered.snapshot).delta.totalBytes, 0)
+    }
+
+    func testFallbackDoesNotEraseRememberedTemporarilyMissingInterface() {
+        let old = interfaces(100, ["pdp_ip0": 1_000, "pdp_ip1": 500])
+        let tracker = UsageTracker(reader: StubReader([
+            interfaces(101, ["pdp_ip0": 1_200]),
+            interfaces(102, ["pdp_ip0": 1_300], bits: 32),
+            interfaces(103, ["pdp_ip0": 1_400, "pdp_ip1": 550])
+        ]))
+        let first = tracker.sample(previous: old)
+        XCTAssertEqual(first.delta.cellularReceived, 200)
+        let fallback = tracker.sample(previous: first.snapshot)
+        XCTAssertFalse(fallback.didRead)
+        XCTAssertEqual(fallback.snapshot, first.snapshot)
+        XCTAssertEqual(tracker.sample(previous: fallback.snapshot).delta.cellularReceived, 250)
+    }
+
+    func testRebootAllows32BitReadingBecauseWideBaselineIsNoLongerRecoverable() {
+        let old = interfaces(100, ["pdp_ip0": 4_000_000_000], boot: 1)
+        let tracker = UsageTracker(reader: StubReader([
+            interfaces(200, ["pdp_ip0": 500], bits: 32, boot: 150)
+        ]))
+        let result = tracker.sample(previous: old)
+        XCTAssertTrue(result.didRead)
+        XCTAssertEqual(result.delta.cellularReceived, 500)
+        XCTAssertEqual(result.snapshot.counterBits, 32)
+    }
+
     func test32BitFallbackRecognizesNearBoundaryWrap() {
         let old = interfaces(100, ["pdp_ip0": UInt64(UInt32.max) - 99], bits: 32)
         let tracker = UsageTracker(reader: StubReader([interfaces(101, ["pdp_ip0": 400], bits: 32)]))

@@ -204,4 +204,35 @@ final class AppStoreTests: XCTestCase {
         XCTAssertNil(store.plan.lastCalibrationTargetBytes)
     }
 
+    func testNarrowFallbackPreservesPersistedBaselineAndRecoversUsageAfterRestart() async {
+        let persistence = PersistenceService(storageURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).appendingPathComponent("netflow-data.json"))
+        let now = Date(timeIntervalSince1970: floor(Date().timeIntervalSince1970))
+        func snapshot(_ bytes: UInt64, at timestamp: Date, bits: Int) -> NetworkSnapshot {
+            let counter = NetworkCounter(received: bytes, sent: 0)
+            return NetworkSnapshot(wifi: .zero, cellular: counter, timestamp: timestamp,
+                                   wifiInterfaces: [:], cellularInterfaces: ["pdp_ip0": counter],
+                                   counterBits: bits, bootTime: 1)
+        }
+        let wide = snapshot(4_000_000_000, at: now.addingTimeInterval(-120), bits: 64)
+        XCTAssertTrue(persistence.save(settings: AppSettings(), plan: DataPlan(), records: [],
+                                       alerts: [], networkSnapshot: wide))
+        let fallback = snapshot(205_032_704, at: now.addingTimeInterval(-60), bits: 32)
+        let store = AppStore(persistence: persistence, tracker: UsageTracker(reader: Reader([fallback])),
+                             notificationsEnabled: false)
+        await store.refresh()
+        store.save()
+        XCTAssertEqual(persistence.load().networkSnapshot, wide)
+        XCTAssertTrue(store.dailyRecords.isEmpty)
+
+        let recovered = snapshot(11_100_000_000, at: now, bits: 64)
+        let restarted = AppStore(persistence: persistence, tracker: UsageTracker(reader: Reader([recovered, recovered])),
+                                 notificationsEnabled: false)
+        await restarted.refresh()
+        restarted.save()
+        XCTAssertEqual(persistence.load().records.reduce(UInt64(0)) { $0 + $1.cellularTotalBytes }, 7_100_000_000)
+        await restarted.refresh()
+        XCTAssertEqual(restarted.dailyRecords.reduce(UInt64(0)) { $0 + $1.cellularTotalBytes }, 7_100_000_000)
+    }
+
 }

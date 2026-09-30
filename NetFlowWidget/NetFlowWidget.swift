@@ -313,6 +313,10 @@ private enum WidgetTrafficStore {
         if let previous = state.raw, let stamp = state.timestamp {
             let rebooted = current.bootTime != nil && previous.bootTime != nil
                 && abs(current.bootTime! - previous.bootTime!) > 1
+            guard InterfaceCounters.canAdvanceBaseline(currentBits: current.counterBits,
+                                                       previousBits: previous.counterBits, rebooted: rebooted) else {
+                return false
+            }
             let wifiMemory = rebooted ? [:] : (previous.rememberedWiFi ?? previous.wifiInterfaces)
             let cellularMemory = rebooted ? [:] : (previous.rememberedCellular ?? previous.cellularInterfaces)
             current.rememberedWiFi = wifiMemory.merging(current.wifiInterfaces) { _, new in new }

@@ -35,11 +35,13 @@
 		B6451560C472B6D274249D24 /* OverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FC4E9DDBF5B6A4B13A7A773 /* OverviewView.swift */; };
 		B83C0AEBE464551AB8F6EB0C /* DataPlanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD889CE2D0915B333F9A14FC /* DataPlanView.swift */; };
 		BA70E6F9D27C16CC91D81BA1 /* NetFlowWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C701556B62CD4B2E8CD3C10D /* NetFlowWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		BB6EE9441EAF6204E4A42748 /* InterfaceCounters.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01B28BC56046FCD9CF8FA06 /* InterfaceCounters.swift */; };
 		CF81A868D086A2FC4D7E6438 /* DailyUsageRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A46B0F637F7F40B20C66453 /* DailyUsageRecord.swift */; };
 		D11BDB9CC517858763953BEE /* DataPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04396C12A917A84D9C1265CB /* DataPlanTests.swift */; };
 		D98774FAA9EDF290950EDB5B /* DataPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3DB9D73B32BEE1C1ED7842C /* DataPlan.swift */; };
 		DB6DDE1D98A3C160AE48F694 /* PersistenceServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7864E5824362DDCBBC4C9DB6 /* PersistenceServiceTests.swift */; };
 		EAB7617EA73E7CFD22E533F3 /* UsageCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261C5DA926135BB340054391 /* UsageCard.swift */; };
+		FF1B3955A1CE596491692267 /* InterfaceCounters.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01B28BC56046FCD9CF8FA06 /* InterfaceCounters.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -110,6 +112,7 @@
 		E8B0CBB8AD62A721DFC42A2B /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
 		ECFE0245990F4E97984F02AF /* AppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStore.swift; sourceTree = "<group>"; };
 		EFA583323507260D9F7B9605 /* NetFlowWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetFlowWidget.swift; sourceTree = "<group>"; };
+		F01B28BC56046FCD9CF8FA06 /* InterfaceCounters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceCounters.swift; sourceTree = "<group>"; };
 		F2E696249F02CA3009437B95 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		FD889CE2D0915B333F9A14FC /* DataPlanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataPlanView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -168,6 +171,7 @@
 		20FC153731687C6C41C26A58 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				F01B28BC56046FCD9CF8FA06 /* InterfaceCounters.swift */,
 				718B1FC172E4732E8E6E54B0 /* NetFlowActivityAttributes.swift */,
 			);
 			path = Shared;
@@ -406,6 +410,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FF1B3955A1CE596491692267 /* InterfaceCounters.swift in Sources */,
 				96D8E7B2C87FA4E5DF5DADBF /* NetFlowWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -422,6 +427,7 @@
 				B83C0AEBE464551AB8F6EB0C /* DataPlanView.swift in Sources */,
 				A2B6DE404ACF641034CB653E /* Formatters.swift in Sources */,
 				6315AA4CE266139EB971B651 /* HistoryView.swift in Sources */,
+				BB6EE9441EAF6204E4A42748 /* InterfaceCounters.swift in Sources */,
 				8AF1D769C09D057F0D0DF33D /* LegacyLiveActivityCleanup.swift in Sources */,
 				812CC7A6C4155252AF371B4E /* NetFlowActivityAttributes.swift in Sources */,
 				304FF9D84A862007C8B4BE8A /* NetFlowApp.swift in Sources */,
@@ -475,7 +481,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 43;
+				CURRENT_PROJECT_VERSION = 45;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlow/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -483,7 +489,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.2.14;
+				MARKETING_VERSION = 4.2.16;
 				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow;
 				PRODUCT_NAME = NetFlow;
 				SDKROOT = iphoneos;
@@ -578,7 +584,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CURRENT_PROJECT_VERSION = 43;
+				CURRENT_PROJECT_VERSION = 45;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlowWidget/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -587,7 +593,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.2.14;
+				MARKETING_VERSION = 4.2.16;
 				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow.widget;
 				PRODUCT_NAME = NetFlowWidget;
 				SDKROOT = iphoneos;
@@ -602,7 +608,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CURRENT_PROJECT_VERSION = 43;
+				CURRENT_PROJECT_VERSION = 45;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlowWidget/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -611,7 +617,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.2.14;
+				MARKETING_VERSION = 4.2.16;
 				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow.widget;
 				PRODUCT_NAME = NetFlowWidget;
 				SDKROOT = iphoneos;
@@ -627,7 +633,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 43;
+				CURRENT_PROJECT_VERSION = 45;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlow/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -635,7 +641,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.2.14;
+				MARKETING_VERSION = 4.2.16;
 				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow;
 				PRODUCT_NAME = NetFlow;
 				SDKROOT = iphoneos;

@@ -51,6 +51,11 @@ final class AppStore: ObservableObject {
         }
         hasStarted = true
 
+        // Establish the traffic baseline before any permission sheet or network
+        // lookup can suspend this startup task. Context is unrelated to counters.
+        await refresh()
+        restartSamplingTimer()
+
         if #available(iOS 16.2, *) {
             await LegacyLiveActivityCleanup.endExistingActivities()
         }
@@ -58,14 +63,12 @@ final class AppStore: ObservableObject {
         networkContext.requestAccessAndRefresh()
         _ = await notificationService.requestAuthorization()
         await refreshContext()
-        await refresh()
-        restartSamplingTimer()
     }
 
     func refreshAfterBecomingActive() async {
-        await refreshContext()
         await refresh()
         restartSamplingTimer()
+        await refreshContext()
     }
 
     func pauseSampling() {
