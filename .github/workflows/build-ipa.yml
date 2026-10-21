@@ -39,6 +39,13 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             test
 
+      - name: Capture native app smoke screenshot
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices booted -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if x["name"].startswith("iPhone")))')
+          xcrun simctl launch --terminate-running-process "$DEVICE_ID" com.jack.flowledger --ui-smoke
+          sleep 3
+          xcrun simctl io "$DEVICE_ID" screenshot FlowLedger-first-launch.png
+
       - name: Build unsigned iOS app
         run: |
           set -o pipefail
@@ -77,5 +84,6 @@ jobs:
           name: FlowLedger-build-evidence
           path: |
             NetFlow.xcodeproj
+            FlowLedger-first-launch.png
             test-build/Logs/Test/*.xcresult
           if-no-files-found: warn

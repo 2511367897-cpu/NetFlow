@@ -116,12 +116,12 @@ struct DataPlanView: View {
                         .buttonStyle(.borderedProminent)
 
                         if calibrationFailed {
-                            Text("网络计数读取失败，未应用校准。请稍后重试。")
+                            Text("计数读取或账本保存失败，未应用校准。请查看首页错误信息。")
                                 .font(.caption)
                                 .foregroundStyle(.red)
                         }
                         if store.liveSnapshot.counterBits == 32 {
-                            Text("当前使用 32 位计数回退；长时间后台可能漏记，请用运营商数据校准。")
+                            Text("当前使用 32 位计数；需要连续采样。出现长时间空档时会提示可能漏记。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -140,7 +140,7 @@ struct DataPlanView: View {
                             .font(.subheadline)
                         }
 
-                        Text("当 NetFlow 与运营商 App 的本周期已用流量差距较大时，把运营商数字填在这里。校准后继续累计；每日历史不变。企业证书版小组件独立统计，不会自动同步这里的校准。")
+                        Text("本期累计可填入运营商已用流量作为起点，之后继续计数。每日清单保留实测用量；组件的“本期套餐”读取同一个校准结果，“本月蜂窝”保留原始统计。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

@@ -76,6 +76,7 @@ final class AppStore: ObservableObject {
             await LegacyLiveActivityCleanup.endExistingActivities()
         }
 
+        if ProcessInfo.processInfo.arguments.contains("--ui-smoke") { return }
         networkContext.requestAccessAndRefresh()
         _ = await notificationService.requestAuthorization()
         await refreshContext()
@@ -142,7 +143,7 @@ final class AppStore: ObservableObject {
         let alertCountBefore = alerts.count
         checkAlerts()
         let alertTriggered = alerts.count != alertCountBefore
-        save(forcePersistence: cycleChanged || alertTriggered)
+        save(forcePersistence: cycleChanged || alertTriggered || previousSnapshot.timestamp == .distantPast)
         return true
 
     }
