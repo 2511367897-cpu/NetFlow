@@ -54,7 +54,7 @@ private struct LedgerWidgetView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Label("流量账本", systemImage: "antenna.radiowaves.left.and.right")
                     .font(.headline).foregroundStyle(.indigo)
@@ -80,11 +80,14 @@ private struct LedgerWidgetView: View {
                     Text("今日 Wi-Fi \(bytes(Calendar.current.isDate(snapshot.dayStart, inSameDayAs: entry.date) ? snapshot.todayWiFi : nil)) · 本月 Wi-Fi \(bytes(snapshot.monthCellular(at: entry.date) == nil ? nil : snapshot.monthWiFi))")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
-                Text(snapshot.isStale(at: entry.date) ? "采样已中断或数据待更新" :
-                     (snapshot.continuousRunning ? "连续采样中 · 组件由系统定时刷新" : "连续采样未运行"))
-                    .font(.caption2).foregroundStyle(snapshot.isStale(at: entry.date) ? .orange : .secondary)
-                Text("采样于 \(snapshot.sampledAt.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Text(snapshot.isStale(at: entry.date) ? "数据待更新" :
+                         (snapshot.continuousRunning ? "连续记录中" : "后台未运行"))
+                        .foregroundStyle(snapshot.isStale(at: entry.date) ? .orange : .secondary)
+                    Spacer(minLength: 0)
+                    Text(snapshot.sampledAt, style: .time).foregroundStyle(.secondary)
+                }
+                .font(.caption2).lineLimit(1).minimumScaleFactor(0.8)
                 if snapshot.warning != nil && family != .systemSmall {
                     Text("历史存在采样空档，详见 App").font(.caption2).foregroundStyle(.orange)
                 }
