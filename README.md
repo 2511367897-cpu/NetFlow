@@ -1,3 +1,5 @@
+> 此分支是 **FlowLedger 流量账本实验版**。构建、限制与验证说明见 [FLOWLEDGER.md](FLOWLEDGER.md)。
+
 # NetFlow 4.2.0 (Build 29)
 
 [![iOS CI](https://github.com/hnduy910/NetFlow/actions/workflows/ci.yml/badge.svg)](https://github.com/hnduy910/NetFlow/actions/workflows/ci.yml)

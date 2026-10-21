@@ -42,6 +42,13 @@
 		DB6DDE1D98A3C160AE48F694 /* PersistenceServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7864E5824362DDCBBC4C9DB6 /* PersistenceServiceTests.swift */; };
 		EAB7617EA73E7CFD22E533F3 /* UsageCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 261C5DA926135BB340054391 /* UsageCard.swift */; };
 		FF1B3955A1CE596491692267 /* InterfaceCounters.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01B28BC56046FCD9CF8FA06 /* InterfaceCounters.swift */; };
+		FC9A6C9AD26F7B76E8721049 /* ContinuousMonitoringService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE2ADC45B253A4FE440FE4D4 /* ContinuousMonitoringService.swift */; };
+		06EE7100B73D906116E584CC /* LedgerProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DD7F2B3FF9A65594CFDB5D4 /* LedgerProjection.swift */; };
+		2AE281F6C74E374A42FA4DC2 /* LedgerSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64858112EE587612D4E01E75 /* LedgerSnapshot.swift */; };
+		425F783824D693A1223448A6 /* LedgerSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64858112EE587612D4E01E75 /* LedgerSnapshot.swift */; };
+		A5715B5A209D1F238ACAFB07 /* SharedLedgerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49B1142C7A946556664E2C7 /* SharedLedgerStore.swift */; };
+		C411351D54F7E968F1838F18 /* SharedLedgerStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49B1142C7A946556664E2C7 /* SharedLedgerStore.swift */; };
+		93D331C14B479691726FB019 /* LedgerSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0054E717311265C16B30F20C /* LedgerSnapshotTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -115,6 +122,11 @@
 		F01B28BC56046FCD9CF8FA06 /* InterfaceCounters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InterfaceCounters.swift; sourceTree = "<group>"; };
 		F2E696249F02CA3009437B95 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		FD889CE2D0915B333F9A14FC /* DataPlanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataPlanView.swift; sourceTree = "<group>"; };
+		EE2ADC45B253A4FE440FE4D4 /* ContinuousMonitoringService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContinuousMonitoringService.swift; sourceTree = "<group>"; };
+		7DD7F2B3FF9A65594CFDB5D4 /* LedgerProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerProjection.swift; sourceTree = "<group>"; };
+		64858112EE587612D4E01E75 /* LedgerSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerSnapshot.swift; sourceTree = "<group>"; };
+		F49B1142C7A946556664E2C7 /* SharedLedgerStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedLedgerStore.swift; sourceTree = "<group>"; };
+		0054E717311265C16B30F20C /* LedgerSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LedgerSnapshotTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -135,6 +147,8 @@
 		10ED10B1689C4E325818A770 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				7DD7F2B3FF9A65594CFDB5D4 /* LedgerProjection.swift */,
+				EE2ADC45B253A4FE440FE4D4 /* ContinuousMonitoringService.swift */,
 				615B71AD36A303BCADBA89C3 /* Formatters.swift */,
 				0F715FF88A039A92A9C151B3 /* LegacyLiveActivityCleanup.swift */,
 				837941D8E539720585C89897 /* NetworkInterfaceReader.swift */,
@@ -171,6 +185,8 @@
 		20FC153731687C6C41C26A58 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				F49B1142C7A946556664E2C7 /* SharedLedgerStore.swift */,
+				64858112EE587612D4E01E75 /* LedgerSnapshot.swift */,
 				F01B28BC56046FCD9CF8FA06 /* InterfaceCounters.swift */,
 				718B1FC172E4732E8E6E54B0 /* NetFlowActivityAttributes.swift */,
 			);
@@ -273,6 +289,7 @@
 		FB3DFDE2D49E863CEAAC7A01 /* NetFlowTests */ = {
 			isa = PBXGroup;
 			children = (
+				0054E717311265C16B30F20C /* LedgerSnapshotTests.swift */,
 				1FF09890C3042EEB451347E6 /* AppStoreTests.swift */,
 				04396C12A917A84D9C1265CB /* DataPlanTests.swift */,
 				7864E5824362DDCBBC4C9DB6 /* PersistenceServiceTests.swift */,
@@ -399,6 +416,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				93D331C14B479691726FB019 /* LedgerSnapshotTests.swift in Sources */,
 				B537058BA665D9068531C9F9 /* AppStoreTests.swift in Sources */,
 				D11BDB9CC517858763953BEE /* DataPlanTests.swift in Sources */,
 				DB6DDE1D98A3C160AE48F694 /* PersistenceServiceTests.swift in Sources */,
@@ -410,7 +428,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				FF1B3955A1CE596491692267 /* InterfaceCounters.swift in Sources */,
+				C411351D54F7E968F1838F18 /* SharedLedgerStore.swift in Sources */,
+				425F783824D693A1223448A6 /* LedgerSnapshot.swift in Sources */,
 				96D8E7B2C87FA4E5DF5DADBF /* NetFlowWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -419,6 +438,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A5715B5A209D1F238ACAFB07 /* SharedLedgerStore.swift in Sources */,
+				2AE281F6C74E374A42FA4DC2 /* LedgerSnapshot.swift in Sources */,
+				06EE7100B73D906116E584CC /* LedgerProjection.swift in Sources */,
+				FC9A6C9AD26F7B76E8721049 /* ContinuousMonitoringService.swift in Sources */,
 				5C933FA47C0C6F23592A5315 /* AppChrome.swift in Sources */,
 				69FB51483FDE63DD07E2F7E6 /* AppSettings.swift in Sources */,
 				228EDE607E5DCD36B97B7E93 /* AppStore.swift in Sources */,
@@ -481,16 +504,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlow/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = NetFlow/NetFlow.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.2.16;
-				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jack.flowledger;
 				PRODUCT_NAME = NetFlow;
 				SDKROOT = iphoneos;
 				SWIFT_STRICT_CONCURRENCY = minimal;
@@ -573,7 +597,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jack.flowledger.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NetFlow.app/NetFlow";
@@ -584,17 +608,18 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlowWidget/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = NetFlowWidget/NetFlowWidget.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.2.16;
-				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow.widget;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jack.flowledger.widget;
 				PRODUCT_NAME = NetFlowWidget;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -608,17 +633,18 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlowWidget/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = NetFlowWidget/NetFlowWidget.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 4.2.16;
-				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow.widget;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jack.flowledger.widget;
 				PRODUCT_NAME = NetFlowWidget;
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -633,16 +659,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = NetFlow/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = NetFlow/NetFlow.entitlements;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.2.16;
-				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jack.flowledger;
 				PRODUCT_NAME = NetFlow;
 				SDKROOT = iphoneos;
 				SWIFT_STRICT_CONCURRENCY = minimal;
@@ -662,7 +689,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.duyhoang.netflow.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jack.flowledger.tests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/NetFlow.app/NetFlow";

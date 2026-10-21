@@ -13,6 +13,24 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: AppChrome.spacing) {
+                cardSection("连续统计（实验）") {
+                    Toggle("后台连续采样", isOn: Binding(
+                        get: { store.settings.continuousMonitoringEnabled == true },
+                        set: { store.setContinuousMonitoring($0) }
+                    ))
+                    Text(store.monitoringStatus).font(.footnote)
+                    Text("使用本地静音音频会话尝试保持每秒采样，会增加耗电。来电、系统回收、强制退出或重启可能使其停止；重启后需打开一次 App。小组件由 iOS 决定刷新时间。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if let error = store.widgetSyncError { Text(error).font(.caption).foregroundStyle(.orange) }
+                    if let error = store.storageError { Text(error).font(.caption).foregroundStyle(.red) }
+                    Text("从首次采样开始记账，安装前的每日用量无法补回。本期历史累计可在套餐页面校准，日清单仍保留实测值。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("导出采样诊断") {
+                        do { exportURL = try store.makeDiagnostics(); showShare = true }
+                        catch { statusMessage = error.localizedDescription }
+                    }
+                }
+
                 cardSection("language") {
                     Picker("language", selection: $store.settings.appLanguage) {
                         Text("system").tag(AppLanguage.system)
@@ -52,7 +70,9 @@ struct SettingsView: View {
 
                 cardSection("about") {
                     LabeledContent("version", value: appVersionText)
-                    LabeledContent("author", value: "Hoàng Ngọc Duy")
+                    LabeledContent("原项目", value: "NetFlow · Hoàng Ngọc Duy · MIT")
+                    Text("FlowLedger 实验分支：账本共享、连续采样与采样异常记录")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(AppChrome.pagePadding)

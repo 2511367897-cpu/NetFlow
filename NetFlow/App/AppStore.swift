@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UserNotifications
+import WidgetKit
 
 @MainActor
 final class AppStore: ObservableObject {
@@ -11,6 +12,14 @@ final class AppStore: ObservableObject {
     @Published var currentRate = NetworkRate.zero
     @Published var alerts: [UsageAlertEvent]
 
+    @Published private(set) var monitoringStatus = "连续采样未开启"
+    @Published private(set) var storageError: String?
+    @Published private(set) var widgetSyncError: String?
+    @Published private(set) var monitoringEvents: [MonitoringEvent] = []
+    private let continuous = ContinuousMonitoringService()
+    private let sharedLedger = SharedLedgerStore()
+    private var lastWidgetReload = Date.distantPast
+
     let networkContext = NetworkContextService()
     let capabilities = SystemCapabilitiesService()
 
@@ -20,7 +29,7 @@ final class AppStore: ObservableObject {
     private var timerTask: Task<Void, Never>?
     private var hasStarted = false
     private var lastDiskSaveAt = Date.distantPast
-    private let diskSaveInterval: TimeInterval = 30
+    private let diskSaveInterval: TimeInterval = 10
 
     init(persistence: PersistenceService = PersistenceService(),
          tracker: UsageTracker = UsageTracker(), notificationsEnabled: Bool = true) {
@@ -31,6 +40,7 @@ final class AppStore: ObservableObject {
         plan = loaded.plan
         dailyRecords = loaded.records
         alerts = loaded.alerts
+        monitoringEvents = loaded.monitoringEvents ?? []
         self.notificationService.enabled = notificationsEnabled
         if let persistedSnapshot = loaded.networkSnapshot {
             liveSnapshot = persistedSnapshot
@@ -50,6 +60,12 @@ final class AppStore: ObservableObject {
             return
         }
         hasStarted = true
+        continuous.onChange = { [weak self] in
+            guard let self else { return }
+            self.monitoringStatus = self.continuous.status
+            self.save()
+        }
+        continuous.setEnabled(settings.continuousMonitoringEnabled == true)
 
         // Establish the traffic baseline before any permission sheet or network
         // lookup can suspend this startup task. Context is unrelated to counters.
@@ -66,6 +82,7 @@ final class AppStore: ObservableObject {
     }
 
     func refreshAfterBecomingActive() async {
+        continuous.resumeIfRequested()
         await refresh()
         restartSamplingTimer()
         await refreshContext()
@@ -78,11 +95,11 @@ final class AppStore: ObservableObject {
     }
 
     func prepareForBackground() {
-        // Take one final sample while iOS still gives the app a short execution
-        // window. This reduces the foreground-to-background blind spot.
-        timerTask?.cancel()
-        timerTask = nil
         sampleMeasurement()
+        if !continuous.isRunning {
+            timerTask?.cancel()
+            timerTask = nil
+        }
         save()
     }
 
@@ -91,7 +108,7 @@ final class AppStore: ObservableObject {
         timerTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                let seconds = max(self.settings.refreshSeconds, 1)
+                let seconds = self.continuous.isRunning ? 1 : max(self.settings.refreshSeconds, 1)
                 try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
                 guard !Task.isCancelled else { return }
                 await self.refresh()
@@ -100,6 +117,7 @@ final class AppStore: ObservableObject {
     }
 
     func refresh() async {
+        continuous.checkPlayback()
         sampleMeasurement()
     }
 
@@ -107,6 +125,7 @@ final class AppStore: ObservableObject {
     private func sampleMeasurement() -> Bool {
         let previousSnapshot = liveSnapshot
         let result = tracker.sample(previous: liveSnapshot)
+        if let warning = result.warning { recordMonitoringEvent(warning, at: Date()) }
         guard result.didRead, result.snapshot.timestamp != .distantPast else {
             currentRate = .zero
             return false
@@ -251,6 +270,7 @@ final class AppStore: ObservableObject {
         guard interval.start == plan.activeCycleStart else { return false }
 
         let measured = measuredPlanUsage(in: interval)
+        let previousPlan = plan
         // Calibration supersedes the legacy fixed manual addition.
         plan.manualUsedBytes = 0
         let base = measured
@@ -261,8 +281,13 @@ final class AppStore: ObservableObject {
 
         // Re-evaluate thresholds from the corrected carrier-aligned baseline.
         plan.triggeredAlertIDs.removeAll()
+        guard save() else {
+            plan = previousPlan
+            return false
+        }
         checkAlerts()
         save()
+        WidgetCenter.shared.reloadAllTimelines()
         return true
     }
 
@@ -332,24 +357,81 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func save(forcePersistence: Bool = true) {
+    @discardableResult
+    func save(forcePersistence: Bool = true) -> Bool {
         let now = Date()
-        if forcePersistence || now.timeIntervalSince(lastDiskSaveAt) >= diskSaveInterval {
-            let didPersist = persistence.save(
-                settings: settings,
-                plan: plan,
-                records: dailyRecords,
-                alerts: alerts,
-                networkSnapshot: liveSnapshot.timestamp == .distantPast ? nil : liveSnapshot
-            )
-
-            if didPersist {
-                lastDiskSaveAt = now
-                // The atomic JSON now owns the baseline. Remove the old migration cache.
-                NetworkSnapshotCache.clear()
-            }
+        guard forcePersistence || now.timeIntervalSince(lastDiskSaveAt) >= diskSaveInterval else { return true }
+        let didPersist = persistence.save(
+            settings: settings, plan: plan, records: dailyRecords, alerts: alerts,
+            networkSnapshot: liveSnapshot.timestamp == .distantPast ? nil : liveSnapshot,
+            monitoringEvents: monitoringEvents
+        )
+        guard didPersist else {
+            storageError = "账本保存失败，当前数据尚未落盘"
+            return false
         }
+        storageError = nil
+        lastDiskSaveAt = now
+        NetworkSnapshotCache.clear()
+        // Publish only a projection of an atomically committed app ledger.
+        if liveSnapshot.timestamp != .distantPast {
+            do {
+                try sharedLedger.write(ledgerSnapshot(at: now))
+                widgetSyncError = nil
+                if now.timeIntervalSince(lastWidgetReload) >= 300 {
+                    WidgetCenter.shared.reloadAllTimelines()
+                    lastWidgetReload = now
+                }
+            } catch { widgetSyncError = error.localizedDescription }
+        } else {
+            do {
+                try sharedLedger.clear()
+                widgetSyncError = nil
+                WidgetCenter.shared.reloadAllTimelines()
+            } catch { widgetSyncError = error.localizedDescription }
+        }
+        return true
+    }
 
+    func setContinuousMonitoring(_ enabled: Bool) {
+        settings.continuousMonitoringEnabled = enabled
+        continuous.setEnabled(enabled)
+        monitoringStatus = continuous.status
+        restartSamplingTimer()
+        save()
+    }
+
+    func ledgerSnapshot(at now: Date = Date()) -> LedgerSnapshot {
+        LedgerSnapshot.make(records: dailyRecords, at: now,
+                            sampledAt: liveSnapshot.timestamp,
+                            planUsed: planUsage(at: now), planCapacity: plan.effectiveCapacityBytes,
+                            continuousRequested: settings.continuousMonitoringEnabled == true,
+                            continuousRunning: continuous.isRunning, counterBits: liveSnapshot.counterBits,
+                            warning: monitoringEvents.last?.message)
+    }
+
+    private func recordMonitoringEvent(_ message: String, at date: Date) {
+        if let last = monitoringEvents.last, last.message == message,
+           date.timeIntervalSince(last.date) < 60 { return }
+        monitoringEvents.append(MonitoringEvent(date: date, message: message))
+        monitoringEvents = Array(monitoringEvents.suffix(50))
+    }
+
+    func makeDiagnostics() throws -> URL {
+        struct Diagnostics: Encodable {
+            var generatedAt: Date
+            var snapshot: NetworkSnapshot
+            var events: [MonitoringEvent]
+            var monitoringStatus: String
+            var storageError: String?
+            var widgetSyncError: String?
+        }
+        let report = Diagnostics(generatedAt: Date(), snapshot: liveSnapshot,
+                                 events: monitoringEvents, monitoringStatus: monitoringStatus,
+                                 storageError: storageError, widgetSyncError: widgetSyncError)
+        let destination = FileManager.default.temporaryDirectory.appendingPathComponent("FlowLedger-diagnostics.json")
+        try JSONEncoder.pretty.encode(report).write(to: destination, options: .atomic)
+        return destination
     }
 
     func makeBackup() throws -> URL {
@@ -366,6 +448,7 @@ final class AppStore: ObservableObject {
         plan = restored.plan
         dailyRecords = restored.records.sorted { $0.date > $1.date }
         alerts = restored.alerts
+        monitoringEvents = restored.monitoringEvents ?? []
         liveSnapshot = .zero
         currentRate = .zero
         tracker.resetBaseline()
@@ -377,6 +460,7 @@ final class AppStore: ObservableObject {
 
     func resetAll() {
         dailyRecords = []
+        monitoringEvents = []
         alerts = []
         liveSnapshot = .zero
         currentRate = .zero

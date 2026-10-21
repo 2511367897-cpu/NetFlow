@@ -83,6 +83,7 @@ struct OverviewView: View {
         ScrollView {
             VStack(spacing: AppChrome.spacing) {
                 topBar
+                monitoringCard
                 planHero
                 statsGrid
                 liveSpeedCard
@@ -98,6 +99,29 @@ struct OverviewView: View {
         .refreshable {
             await refreshEverything()
         }
+    }
+
+    private var monitoringCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("流量账本 · " + store.monitoringStatus).font(.headline)
+            if store.liveSnapshot.timestamp != .distantPast {
+                Text("最近采样：" + store.liveSnapshot.timestamp.formatted(date: .abbreviated, time: .standard))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if store.settings.continuousMonitoringEnabled != true {
+                Button("开始后台连续采样（实验）") { store.setContinuousMonitoring(true) }
+                Text("使用静音音频会话，会增加耗电；系统仍可能中断。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let error = store.storageError ?? store.widgetSyncError {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+            if let last = store.monitoringEvents.last {
+                Text("最近异常：" + last.message).font(.caption).foregroundStyle(.orange)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .netFlowCard(cornerRadius: 18)
     }
 
     private var topBar: some View {
@@ -214,25 +238,25 @@ struct OverviewView: View {
             spacing: 12
         ) {
             metricTile(
-                title: "今日",
-                value: ByteFormat.string(todayTotal),
-                subtitle: "↓ \(ByteFormat.string(todayDownload))  ↑ \(ByteFormat.string(todayUpload))",
+                title: "今日蜂窝",
+                value: ByteFormat.string(today?.cellularTotalBytes ?? 0),
+                subtitle: "Wi-Fi \(ByteFormat.string(today?.wifiTotalBytes ?? 0))",
                 icon: "sun.max.fill",
                 tint: AppChrome.download
             )
 
             metricTile(
-                title: "本月",
-                value: ByteFormat.string(monthTotal),
-                subtitle: "\(Calendar.current.component(.month, from: Date())) 月累计",
+                title: "本月蜂窝",
+                value: ByteFormat.string(rawMonthCellular),
+                subtitle: "\(Calendar.current.component(.month, from: Date())) 月实测累计",
                 icon: "calendar",
                 tint: AppChrome.accent
             )
 
             metricTile(
-                title: "蜂窝数据",
-                value: ByteFormat.string(monthCellular),
-                subtitle: "本月",
+                title: "本期套餐",
+                value: ByteFormat.string(planUsed),
+                subtitle: "包含手动校准",
                 icon: "antenna.radiowaves.left.and.right",
                 tint: AppChrome.cellular
             )

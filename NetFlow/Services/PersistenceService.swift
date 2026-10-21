@@ -6,6 +6,7 @@ struct PersistencePayload: Codable {
     var records: [DailyUsageRecord]
     var alerts: [UsageAlertEvent]
     var networkSnapshot: NetworkSnapshot? = nil
+    var monitoringEvents: [MonitoringEvent]? = nil
 }
 
 struct PersistenceService {
@@ -37,14 +38,16 @@ struct PersistenceService {
         plan: DataPlan,
         records: [DailyUsageRecord],
         alerts: [UsageAlertEvent],
-        networkSnapshot: NetworkSnapshot? = nil
+        networkSnapshot: NetworkSnapshot? = nil,
+        monitoringEvents: [MonitoringEvent]? = nil
     ) -> Bool {
         let payload = PersistencePayload(
             settings: settings,
             plan: plan,
             records: records,
             alerts: alerts,
-            networkSnapshot: networkSnapshot
+            networkSnapshot: networkSnapshot,
+            monitoringEvents: monitoringEvents
         )
 
         guard let data = try? JSONEncoder.pretty.encode(payload) else {

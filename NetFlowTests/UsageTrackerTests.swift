@@ -271,4 +271,45 @@ final class UsageTrackerTests: XCTestCase {
         XCTAssertEqual(record.wifiReceived, UInt64.max)
     }
 
+    func testFortyGigabytesAcrossRepeated32BitWrapsAreCountedOnce() {
+        let increment: UInt64 = 1_500_000_000
+        let modulus: UInt64 = 1 << 32
+        var values: [NetworkSnapshot] = []
+        for index in 1...28 {
+            values.append(interfaces(100 + Double(index),
+                ["pdp_ip0": (2_700_000_000 + UInt64(index) * increment) % modulus], bits: 32))
+        }
+        let tracker = UsageTracker(reader: StubReader(values))
+        var baseline = interfaces(100, ["pdp_ip0": 2_700_000_000], bits: 32)
+        var counted: UInt64 = 0
+        for _ in values {
+            let result = tracker.sample(previous: baseline)
+            counted += result.delta.cellularReceived
+            baseline = result.snapshot
+        }
+        XCTAssertEqual(counted, 42_000_000_000)
+    }
+
+    func testFortyGigabyte64BitGapSurvivesTemporaryFallbackAndRelaunch() {
+        let old = interfaces(100, ["pdp_ip0": 9_000_000_000])
+        let firstTracker = UsageTracker(reader: StubReader([
+            interfaces(200, ["pdp_ip0": 100], bits: 32)]))
+        let fallback = firstTracker.sample(previous: old)
+        XCTAssertFalse(fallback.didRead)
+        XCTAssertNotNil(fallback.warning)
+        let restarted = UsageTracker(reader: StubReader([
+            interfaces(500, ["pdp_ip0": 49_000_000_000])]))
+        let recovered = restarted.sample(previous: fallback.snapshot)
+        XCTAssertEqual(recovered.delta.cellularReceived, 40_000_000_000)
+    }
+
+    func testLong32BitGapIsFlaggedEvenWhenTruncatedCounterIncreases() {
+        let old = interfaces(100, ["pdp_ip0": 100], bits: 32)
+        let tracker = UsageTracker(reader: StubReader([
+            interfaces(500, ["pdp_ip0": 200], bits: 32)]))
+        let result = tracker.sample(previous: old)
+        XCTAssertEqual(result.delta.cellularReceived, 100)
+        XCTAssertNotNil(result.warning, "Cannot infer how many full wraps occurred in an unsampled gap")
+    }
+
 }

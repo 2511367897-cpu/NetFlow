@@ -24,6 +24,7 @@ struct AppSettings: Codable, Hashable {
     var appLanguage: AppLanguage = .system
     var theme: AppTheme = .system
     var refreshSeconds = 2
+    var continuousMonitoringEnabled: Bool? = nil
 }
 
 enum AppLanguage: String, Codable, CaseIterable, Identifiable {

@@ -16,7 +16,17 @@ enum InterfaceCounters {
     }
 
     static func read() -> Reading? {
-        if let wide = read64() { return wide }
+        let narrow = read32()
+        if let wide = read64() {
+            // A partial routing dump must not masquerade as a complete empty
+            // cellular reading while getifaddrs still sees a cellular interface.
+            let expected = Set((narrow?.cellular ?? [:]).keys)
+            if expected.isSubset(of: Set(wide.cellular.keys)) { return wide }
+        }
+        return narrow
+    }
+
+    private static func read32() -> Reading? {
         var list: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&list) == 0, let first = list else { return nil }
         defer { freeifaddrs(first) }
@@ -109,8 +119,15 @@ enum InterfaceCounters {
         rebooted || previousBits != 64 || currentBits != 32
     }
 
-    static func difference(current: UInt64, previous: UInt64, bits: Int) -> UInt64 {
+    static func difference(current: UInt64, previous: UInt64, bits: Int, elapsed: TimeInterval? = nil) -> UInt64 {
         if current >= previous { return current - previous }
+        // With frequent samples a wrap need not land close to zero. Bound the
+        // inference by a conservative 16 Gbit/s ceiling and less than one wrap.
+        if bits == 32, let elapsed, elapsed > 0, elapsed <= 2,
+           previous <= UInt64(UInt32.max), current <= UInt64(UInt32.max) {
+            let modulo = UInt64(UInt32.max) - previous + 1 + current
+            if Double(modulo) <= 2_000_000_000 * elapsed { return modulo }
+        }
         // Only infer wrap near the end of a 32-bit counter. A small counter
         // regression is an interface reset; keep its post-reset bytes.
         if bits == 32, previous >= 3_750_000_000, current <= 536_870_912 {

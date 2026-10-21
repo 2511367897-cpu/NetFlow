@@ -1,9 +1,9 @@
-name: Build NetFlow IPA
+name: Build FlowLedger prototype IPA
 
 on:
   push:
     branches:
-      - main
+      - codex/flowledger-native
   workflow_dispatch:
 
 permissions:
@@ -59,13 +59,23 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/NetFlow.app Payload/
-          /usr/bin/zip -qry NetFlow-4.2.16-build45-unsigned.ipa Payload
-          sh Tools/validate_ipa.sh NetFlow-4.2.16-build45-unsigned.ipa
-          ls -lh NetFlow-4.2.16-build45-unsigned.ipa
+          /usr/bin/zip -qry FlowLedger-0.1.0-build1-unsigned.ipa Payload
+          sh Tools/validate_ipa.sh FlowLedger-0.1.0-build1-unsigned.ipa
+          ls -lh FlowLedger-0.1.0-build1-unsigned.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: NetFlow-4.2.16-build45-unsigned
-          path: NetFlow-4.2.16-build45-unsigned.ipa
+          name: FlowLedger-0.1.0-build1-unsigned
+          path: FlowLedger-0.1.0-build1-unsigned.ipa
           if-no-files-found: error
+
+      - name: Upload generated project and test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowLedger-build-evidence
+          path: |
+            NetFlow.xcodeproj
+            test-build/Logs/Test/*.xcresult
+          if-no-files-found: warn

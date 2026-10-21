@@ -235,4 +235,30 @@ final class AppStoreTests: XCTestCase {
         XCTAssertEqual(restarted.dailyRecords.reduce(UInt64(0)) { $0 + $1.cellularTotalBytes }, 7_100_000_000)
     }
 
+    func testCalibrationReportsFailureAndRollsBackWhenDiskWriteFails() throws {
+        let blocker = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data([0]).write(to: blocker)
+        defer { try? FileManager.default.removeItem(at: blocker) }
+        let now = Date()
+        let sample = NetworkSnapshot(wifi: .zero, cellular: .zero, timestamp: now)
+        let persistence = PersistenceService(storageURL: blocker.appendingPathComponent("ledger.json"))
+        let store = AppStore(persistence: persistence,
+                             tracker: UsageTracker(reader: Reader([sample])), notificationsEnabled: false)
+        let previous = store.plan
+        XCTAssertFalse(store.calibratePlanUsage(to: 20_000_000_000, at: now))
+        XCTAssertEqual(store.plan.usageCorrectionBytes, previous.usageCorrectionBytes)
+        XCTAssertEqual(store.plan.lastCalibrationDate, previous.lastCalibrationDate)
+        XCTAssertNotNil(store.storageError)
+    }
+
+    func testWidgetProjectionSeparatesRawMonthFromCalibratedPlan() {
+        let (store, _, now) = isolatedStore(raw: 3_000_000_000)
+        XCTAssertTrue(store.calibratePlanUsage(to: 20_000_000_000, at: now))
+        let snapshot = store.ledgerSnapshot(at: now)
+        XCTAssertEqual(snapshot.todayCellular, store.dailyRecords.first?.cellularTotalBytes)
+        XCTAssertEqual(snapshot.monthCellular, 3_000_000_000)
+        XCTAssertEqual(snapshot.planUsed, 20_000_000_000)
+        XCTAssertEqual(snapshot.todayWiFi, 900_000_000)
+    }
+
 }
