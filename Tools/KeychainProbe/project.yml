@@ -13,7 +13,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jack.flowledger.keychainprobe
-        GENERATE_INFOPLIST_FILE: YES
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_VERSION: 5.0
         CODE_SIGN_ENTITLEMENTS: Probe.entitlements
 schemes:

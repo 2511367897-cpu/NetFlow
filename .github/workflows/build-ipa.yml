@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - codex/flowledger-native
+    paths-ignore:
+      - "Tools/KeychainProbe/**"
+      - "Tools/check_keychain_sharing.sh"
+      - ".github/workflows/verify-sharing.yml"
+      - "**.md"
   workflow_dispatch:
 
 permissions:
@@ -12,6 +17,7 @@ permissions:
 jobs:
   build:
     runs-on: macos-15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,12 +76,6 @@ jobs:
           path: FlowLedger-0.1.0-build1-unsigned.ipa
           if-no-files-found: error
 
-      - name: Verify cross-process sharing and capture native UI
-        timeout-minutes: 10
-        run: |
-          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if x["name"].startswith("iPhone")))')
-          bash Tools/check_keychain_sharing.sh "$DEVICE_ID"
-
       - name: Upload generated project and test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -83,7 +83,5 @@ jobs:
           name: FlowLedger-build-evidence
           path: |
             NetFlow.xcodeproj
-            FlowLedger-first-launch.png
-            keychain-probe-result.json
             test-build/Logs/Test/*.xcresult
           if-no-files-found: warn

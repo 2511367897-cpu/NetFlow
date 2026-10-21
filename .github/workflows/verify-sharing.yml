@@ -1,0 +1,38 @@
+name: Verify FlowLedger shared keychain
+on:
+  push:
+    branches:
+      - codex/flowledger-native
+    paths:
+      - "Shared/**"
+      - "NetFlow/**"
+      - "NetFlowWidget/**"
+      - "Tools/KeychainProbe/**"
+      - "Tools/check_keychain_sharing.sh"
+      - ".github/workflows/verify-sharing.yml"
+      - "project.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sharing:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+      - name: Read committed ledger across simulator processes
+        timeout-minutes: 12
+        run: |
+          DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if x["name"].startswith("iPhone")))')
+          bash Tools/check_keychain_sharing.sh "$DEVICE_ID"
+      - name: Preserve sharing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowLedger-keychain-evidence
+          path: |
+            FlowLedger-first-launch.png
+            keychain-probe-result.json
+          if-no-files-found: warn
