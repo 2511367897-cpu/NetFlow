@@ -3,7 +3,8 @@ set -euo pipefail
 DEVICE_ID="$1"
 SIGNING_MODE="${2:-standard}"
 PROBE_SIM_ARCH="$(uname -m)"
-SIGNING_ARGS=()
+# macOS's Bash 3.2 treats an empty array as unset under nounset.
+SIGNING_ARGS=("CODE_SIGNING_ALLOWED=YES")
 if [ "$SIGNING_MODE" != standard ]; then
   # Reproduce the uploaded enterprise package's SIGNED entitlement shape using
   # a synthetic identity; never upload the user's provisioning profile to CI.
@@ -41,7 +42,7 @@ xcodebuild -project Tools/KeychainProbe/FlowLedgerProbe.xcodeproj \
   CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO \
   DEVELOPMENT_TEAM=FLOWLEDGER CODE_SIGN_STYLE=Manual AppIdentifierPrefix=FLOWLEDGER. ENABLE_DEBUG_DYLIB=NO ONLY_ACTIVE_ARCH=YES ARCHS="$PROBE_SIM_ARCH" "${SIGNING_ARGS[@]}" build
 python3 - "$SIGNING_MODE" <<'PY'
-import json,plistlib,subprocess,sys
+import json,plistlib,struct,sys
 from pathlib import Path
 mode=sys.argv[1]
 paths={'app':'signed-sim-build/Build/Products/Debug-iphonesimulator/NetFlow.app',
@@ -49,15 +50,33 @@ paths={'app':'signed-sim-build/Build/Products/Debug-iphonesimulator/NetFlow.app'
        'reader':'probe-build/Build/Products/Debug-iphonesimulator/FlowLedgerKeychainProbe.app'}
 evidence={}
 for name,path in paths.items():
-    raw=subprocess.check_output(['codesign','-d','--entitlements',':-',path],stderr=subprocess.DEVNULL)
-    ent=plistlib.loads(raw)
+    # Xcode injects simulator security entitlements in __TEXT, not in the
+    # ordinary codesign blob. Inspect what simulator securityd actually uses.
+    info=plistlib.loads(Path(path,'Info.plist').read_bytes())
+    binary=Path(path,info['CFBundleExecutable']).read_bytes()
+    assert binary[:4]==b'\xcf\xfa\xed\xfe',name
+    count=struct.unpack_from('<I',binary,16)[0]
+    offset=32
+    ent=None
+    for _ in range(count):
+        cmd,size=struct.unpack_from('<II',binary,offset)
+        if cmd==0x19:
+            sections=struct.unpack_from('<I',binary,offset+64)[0]
+            for index in range(sections):
+                section=offset+72+index*80
+                if binary[section:section+16].rstrip(b'\0')==b'__entitlements':
+                    length=struct.unpack_from('<Q',binary,section+40)[0]
+                    start=struct.unpack_from('<I',binary,section+48)[0]
+                    ent=plistlib.loads(binary[start:start+length].rstrip(b'\0'))
+        offset+=size
+    assert ent is not None,(name,'Missing simulator entitlement section')
     evidence[name]={k:ent.get(k) for k in ('application-identifier','keychain-access-groups')}
     if mode!='standard':
         group='FLOWLEDGER.*' if mode=='resigned-wildcard' else 'FLOWLEDGER.app.resigned.identity'
         assert ent.get('keychain-access-groups')==[group,'com.apple.token'],(name,ent)
         assert ent.get('application-identifier')=='FLOWLEDGER.app.resigned.identity',(name,ent)
 Path('signing-entitlements.json').write_text(json.dumps(evidence,indent=2))
-print('Verified actual code signatures:',evidence)
+print('Verified embedded simulator entitlements:',evidence)
 PY
 xcrun simctl bootstatus "$DEVICE_ID" -b
 xcrun simctl install "$DEVICE_ID" signed-sim-build/Build/Products/Debug-iphonesimulator/NetFlow.app
