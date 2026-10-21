@@ -1,4 +1,4 @@
-# 流量账本 / FlowLedger 0.1 实验版
+# 流量账本 / FlowLedger 0.1.1 实验版
 
 基于 MIT 授权的 NetFlow（基线 `4a7d3e70cd02739283aaf3c4ffe6149c086c2f4f`）。本分支不修改 main。不是已经完成真机精度验证的产品。
 
@@ -40,7 +40,7 @@ App Bundle ID：`com.jack.flowledger`；组件：`com.jack.flowledger.widget`。
 - App：`<AppIdentifierPrefix>com.jack.flowledger`
 - Widget：`<AppIdentifierPrefix>com.jack.flowledger.widget`、`<AppIdentifierPrefix>com.jack.flowledger`
 
-运行时读取当前签名的前缀，不硬编码 Team ID。若重签工具改了 Bundle ID，也必须对应修改两个目标的组。没有共享权限会显示明确错误；不会偷偷启用另一份独立账本。卸载 / 改签名组可能留下不可访问的钥匙串项，但 JSON 账本仍在当前 App 的文档目录。
+0.1.1 修复企业重签兼容：运行时探测实际可访问的钥匙串组。标准签名仍使用明确的父 App 共享组；重签工具若给两个目标相同的字面量 `TEAM.*` 组或重写后的共同应用组，则保留实际组名，不再用原包名重新拼接一个未获授权的组。签名必须真实授权两个目标访问同一组，程序不能自行增加权限。没有共享权限会显示明确错误；不会偷偷启用另一份独立账本。卸载 / 改签名组可能留下不可访问的钥匙串项，但 JSON 账本仍在当前 App 的文档目录。
 
 ## 使用
 
@@ -55,6 +55,6 @@ App Bundle ID：`com.jack.flowledger`；组件：`com.jack.flowledger.widget`。
 - 来电、音乐播放、锁屏、低电量、进程被回收、手机重启后检查状态和组件时间，记录耗电。
 - 校准后强制退出再打开，套餐值保持；每日原始统计不随校准变动；模拟写盘失败不能显示校准成功。
 
-CI 额外以临时模拟器签名运行 App 和一个使用组件相同共享组、不同 Bundle ID 的独立读取器，检查跨进程共享钥匙串。该读取器不进入最终 IPA；这也不等同于真机签名或 WidgetKit 刷新已验证。
+CI 额外以临时模拟器签名运行 App 和一个使用组件相同共享组、不同 Bundle ID 的独立读取器，检查跨进程共享钥匙串。覆盖标准签名、共同字面量通配组、共同重写应用组三种配置，并读取已编译二进制的实际签名验证测试输入。所有 CI 身份均为合成，不上传用户的证书或描述文件。该读取器不进入最终 IPA；这也不等同于真机签名或 WidgetKit 刷新已验证。
 
 所有模拟器 / CI 结果只证明相应代码路径，不代表 iPhone 热点、后台存活或运营商计费精度已经验证。

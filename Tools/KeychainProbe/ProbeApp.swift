@@ -11,8 +11,10 @@ struct KeychainProbeApp: App {
                 .task {
                     var result: [String: Any] = ["success": false]
                     do {
-                        if let snapshot = try SharedLedgerStore(applicationBundleIdentifier: "com.jack.flowledger.widget").read() {
+                        let store = SharedLedgerStore(applicationBundleIdentifier: "com.jack.flowledger.widget")
+                        if let snapshot = try store.read() {
                             result = ["success": true, "schema": snapshot.schema,
+                                      "accessGroup": try store.sharedGroup(),
                                       "sampledAt": snapshot.sampledAt.timeIntervalSince1970,
                                       "todayCellular": snapshot.todayCellular,
                                       "monthCellular": snapshot.monthCellular,

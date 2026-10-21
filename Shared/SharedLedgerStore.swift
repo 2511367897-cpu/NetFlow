@@ -18,7 +18,9 @@ struct SharedLedgerStore {
         var errorDescription: String? {
             switch self {
             case .missingGroup: return "无法识别签名的钥匙串共享组"
-            case .keychain(let code): return "组件共享失败（\(code)），签名须保留共享钥匙串权限"
+            case .keychain(errSecMissingEntitlement): return "当前签名未授权组件共享（-34018）"
+            case .keychain(errSecInteractionNotAllowed): return "共享账本暂不可读，请解锁手机后重试"
+            case .keychain(let code): return "组件共享失败（\(code)）"
             }
         }
     }
@@ -63,10 +65,17 @@ struct SharedLedgerStore {
          kSecAttrAccessGroup: try sharedGroup()]
     }
 
-    private func sharedGroup() throws -> String {
-        // The application identifier prefix is assigned by the signer, not
-        // necessarily the developer's original team. Discover it at runtime.
-        let probeService = "FlowLedger.signing-probe"
+    func sharedGroup() throws -> String {
+        // Read an actually accessible group, rather than guessing permission
+        // from a team prefix. Some enterprise re-signers replace BOTH targets'
+        // groups with the same literal wildcard or a different app identity.
+        // A wildcard in the signed entitlement is not permission for an
+        // arbitrary group formed from our original bundle identifier.
+        guard let bundleID = applicationBundleIdentifier ?? Bundle.main.bundleIdentifier else {
+            throw Failure.missingGroup
+        }
+        let rootID = Self.rootBundleIdentifier(bundleID)
+        let probeService = "FlowLedger.signing-probe.v2.\(rootID)"
         var query: [CFString: Any] = [kSecClass: kSecClassGenericPassword,
                                      kSecAttrService: probeService,
                                      kSecAttrAccount: "prefix",
@@ -80,10 +89,30 @@ struct SharedLedgerStore {
         }
         guard status == errSecSuccess else { throw Failure.keychain(status) }
         guard let attributes = result as? [CFString: Any],
-              let group = attributes[kSecAttrAccessGroup] as? String,
-              let separator = group.firstIndex(of: "."),
-              var bundleID = applicationBundleIdentifier ?? Bundle.main.bundleIdentifier else { throw Failure.missingGroup }
-        if bundleID.hasSuffix(".widget") { bundleID.removeLast(".widget".count) }
-        return String(group[...separator]) + bundleID
+              let group = attributes[kSecAttrAccessGroup] as? String else { throw Failure.missingGroup }
+        return try Self.resolveSharedGroup(defaultGroup: group, bundleIdentifier: bundleID)
+    }
+
+    static func rootBundleIdentifier(_ bundleID: String) -> String {
+        bundleID.hasSuffix(".widget") ? String(bundleID.dropLast(".widget".count)) : bundleID
+    }
+
+    static func resolveSharedGroup(defaultGroup: String, bundleIdentifier: String) throws -> String {
+        guard let separator = defaultGroup.firstIndex(of: "."),
+              separator != defaultGroup.startIndex,
+              defaultGroup.index(after: separator) != defaultGroup.endIndex,
+              defaultGroup != "com.apple.token", !bundleIdentifier.isEmpty else {
+            throw Failure.missingGroup
+        }
+        let prefix = String(defaultGroup[...separator])
+        if defaultGroup == prefix + bundleIdentifier {
+            // Standard signing: the widget has its own default group plus the
+            // explicit parent group supplied in NetFlowWidget.entitlements.
+            return prefix + rootBundleIdentifier(bundleIdentifier)
+        }
+        // Re-signing: keep the exact accessible group (including a literal '*').
+        // App and widget must still be granted the same group by their signer;
+        // no sandbox path fallback or invented entitlement is used here.
+        return defaultGroup
     }
 }

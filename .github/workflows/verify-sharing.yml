@@ -17,7 +17,11 @@ permissions:
 jobs:
   sharing:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        signing: [standard, resigned-wildcard, resigned-concrete]
     steps:
       - uses: actions/checkout@v4
       - run: brew install xcodegen
@@ -26,13 +30,14 @@ jobs:
         timeout-minutes: 12
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if x["name"].startswith("iPhone")))')
-          bash Tools/check_keychain_sharing.sh "$DEVICE_ID"
+          bash Tools/check_keychain_sharing.sh "$DEVICE_ID" "${{ matrix.signing }}"
       - name: Preserve sharing evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: FlowLedger-keychain-evidence
+          name: FlowLedger-keychain-evidence-${{ matrix.signing }}
           path: |
             FlowLedger-first-launch.png
             keychain-probe-result.json
+            signing-entitlements.json
           if-no-files-found: warn

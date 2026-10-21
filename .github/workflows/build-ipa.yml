@@ -65,15 +65,15 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/NetFlow.app Payload/
-          /usr/bin/zip -qry FlowLedger-0.1.0-build1-unsigned.ipa Payload
-          sh Tools/validate_ipa.sh FlowLedger-0.1.0-build1-unsigned.ipa
-          ls -lh FlowLedger-0.1.0-build1-unsigned.ipa
+          /usr/bin/zip -qry FlowLedger-0.1.1-build2-unsigned.ipa Payload
+          sh Tools/validate_ipa.sh FlowLedger-0.1.1-build2-unsigned.ipa
+          ls -lh FlowLedger-0.1.1-build2-unsigned.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FlowLedger-0.1.0-build1-unsigned
-          path: FlowLedger-0.1.0-build1-unsigned.ipa
+          name: FlowLedger-0.1.1-build2-unsigned
+          path: FlowLedger-0.1.1-build2-unsigned.ipa
           if-no-files-found: error
 
       - name: Upload generated project and test results

@@ -4,7 +4,7 @@
 <dict>
 	<key>keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)com.jack.flowledger.keychainprobe</string>
+		<string>$(AppIdentifierPrefix)com.jack.flowledger.widget</string>
 		<string>$(AppIdentifierPrefix)com.jack.flowledger</string>
 	</array>
 </dict>
