@@ -10,3 +10,9 @@ xcuserdata/
 # Local distribution artifacts belong in GitHub Releases, not source history.
 *.ipa
 *.ipa.sha256
+
+# Generated CI-only keychain reader host
+probe-build/
+Tools/KeychainProbe/FlowLedgerProbe.xcodeproj/
+FlowLedger-first-launch.png
+keychain-probe-result.json

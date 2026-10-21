@@ -39,14 +39,11 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             test
 
-      - name: Capture native app smoke screenshot
+      - name: Verify cross-process sharing and capture native UI
+        timeout-minutes: 10
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for v in d["devices"].values() for x in v if x["name"].startswith("iPhone")))')
-          xcrun simctl bootstatus "$DEVICE_ID" -b
-          xcrun simctl install "$DEVICE_ID" test-build/Build/Products/Debug-iphonesimulator/NetFlow.app
-          xcrun simctl launch --terminate-running-process "$DEVICE_ID" com.jack.flowledger --ui-smoke
-          sleep 3
-          xcrun simctl io "$DEVICE_ID" screenshot FlowLedger-first-launch.png
+          bash Tools/check_keychain_sharing.sh "$DEVICE_ID"
 
       - name: Build unsigned iOS app
         run: |
@@ -87,5 +84,6 @@ jobs:
           path: |
             NetFlow.xcodeproj
             FlowLedger-first-launch.png
+            keychain-probe-result.json
             test-build/Logs/Test/*.xcresult
           if-no-files-found: warn

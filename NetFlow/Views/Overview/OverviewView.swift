@@ -186,7 +186,7 @@ struct OverviewView: View {
                     .padding(.top, 2)
                 } else if let age = dataAge {
                     Label(
-                        age > 300 ? "数据可能滞后，点右上角刷新" : "数据已同步",
+                        age > 300 ? "采样数据可能滞后" : "最近采样成功",
                         systemImage: age > 300 ? "exclamationmark.circle.fill" : "checkmark.circle.fill"
                     )
                     .font(.caption2.weight(.semibold))

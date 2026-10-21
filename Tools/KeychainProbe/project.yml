@@ -1,0 +1,22 @@
+name: FlowLedgerProbe
+options:
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  FlowLedgerKeychainProbe:
+    type: application
+    platform: iOS
+    sources:
+      - path: ProbeApp.swift
+      - path: ../../Shared/LedgerSnapshot.swift
+      - path: ../../Shared/SharedLedgerStore.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jack.flowledger.widget
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: 5.0
+schemes:
+  FlowLedgerKeychainProbe:
+    build:
+      targets:
+        FlowLedgerKeychainProbe: all
