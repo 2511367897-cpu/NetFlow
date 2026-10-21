@@ -6,19 +6,21 @@ struct HistoryView: View {
     @State private var days = 30
 
     private var records: [DailyUsageRecord] {
-        Array(store.dailyRecords.prefix(days)).reversed()
+        let start = Calendar.current.date(byAdding: .day, value: 1 - days,
+                                          to: Calendar.current.startOfDay(for: Date())) ?? .distantPast
+        return store.dailyRecords.filter { $0.date >= start && $0.date <= Date() }.sorted { $0.date < $1.date }
     }
 
     private var totalInRange: UInt64 {
-        records.reduce(0) { $0 + $1.totalBytes }
+        records.reduce(0) { InterfaceCounters.add($0, $1.totalBytes) }
     }
 
     private var cellularInRange: UInt64 {
-        records.reduce(0) { $0 + $1.cellularTotalBytes }
+        records.reduce(0) { InterfaceCounters.add($0, $1.cellularTotalBytes) }
     }
 
     private var wifiInRange: UInt64 {
-        records.reduce(0) { $0 + $1.wifiTotalBytes }
+        records.reduce(0) { InterfaceCounters.add($0, $1.wifiTotalBytes) }
     }
 
     var body: some View {
@@ -57,7 +59,7 @@ struct HistoryView: View {
                     Text("每日详情")
                         .netFlowSectionTitle()
 
-                    ForEach(store.dailyRecords.prefix(days)) { r in
+                    ForEach(records.reversed()) { r in
                         dayCard(r)
                     }
                 }
@@ -90,8 +92,8 @@ struct HistoryView: View {
     }
 
     private func dayCard(_ r: DailyUsageRecord) -> some View {
-        let down = r.wifiReceived + r.cellularReceived
-        let up = r.wifiSent + r.cellularSent
+        let down = InterfaceCounters.add(r.wifiReceived, r.cellularReceived)
+        let up = InterfaceCounters.add(r.wifiSent, r.cellularSent)
 
         return VStack(alignment: .leading, spacing: 9) {
             HStack {
@@ -101,6 +103,11 @@ struct HistoryView: View {
                 Text(ByteFormat.string(r.totalBytes))
                     .font(.headline)
                     .monospacedDigit()
+            }
+
+            if r.isEstimated {
+                Label("存在采样空档，跨日用量按时长估算", systemImage: "exclamationmark.triangle")
+                    .font(.caption2).foregroundStyle(.orange)
             }
 
             HStack(spacing: 12) {
