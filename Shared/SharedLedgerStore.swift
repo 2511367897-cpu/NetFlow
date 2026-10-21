@@ -6,6 +6,11 @@ import Security
 struct SharedLedgerStore {
     private let service = "FlowLedger.committed-snapshot.v1"
     private let account = "ledger"
+    private let applicationBundleIdentifier: String?
+
+    init(applicationBundleIdentifier: String? = nil) {
+        self.applicationBundleIdentifier = applicationBundleIdentifier
+    }
 
     enum Failure: Error, LocalizedError {
         case keychain(OSStatus)
@@ -77,7 +82,7 @@ struct SharedLedgerStore {
         guard let attributes = result as? [CFString: Any],
               let group = attributes[kSecAttrAccessGroup] as? String,
               let separator = group.firstIndex(of: "."),
-              var bundleID = Bundle.main.bundleIdentifier else { throw Failure.missingGroup }
+              var bundleID = applicationBundleIdentifier ?? Bundle.main.bundleIdentifier else { throw Failure.missingGroup }
         if bundleID.hasSuffix(".widget") { bundleID.removeLast(".widget".count) }
         return String(group[...separator]) + bundleID
     }

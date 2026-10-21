@@ -1,7 +1,8 @@
 import SwiftUI
 
-// CI-only host with the widget's identity and access groups. It exercises the
-// production reader in a separate process; it is never embedded in the IPA.
+// CI-only client with a distinct bundle ID and the widget's shared access group.
+// It exercises the production reader and widget root resolution in another process.
+// It is never embedded in the IPA.
 @main
 struct KeychainProbeApp: App {
     var body: some Scene {
@@ -10,7 +11,7 @@ struct KeychainProbeApp: App {
                 .task {
                     var result: [String: Any] = ["success": false]
                     do {
-                        if let snapshot = try SharedLedgerStore().read() {
+                        if let snapshot = try SharedLedgerStore(applicationBundleIdentifier: "com.jack.flowledger.widget").read() {
                             result = ["success": true, "schema": snapshot.schema,
                                       "sampledAt": snapshot.sampledAt.timeIntervalSince1970,
                                       "todayCellular": snapshot.todayCellular,

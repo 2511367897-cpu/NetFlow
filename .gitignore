@@ -16,3 +16,4 @@ probe-build/
 Tools/KeychainProbe/FlowLedgerProbe.xcodeproj/
 FlowLedger-first-launch.png
 keychain-probe-result.json
+signed-sim-build/

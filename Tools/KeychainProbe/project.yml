@@ -12,9 +12,10 @@ targets:
       - path: ../../Shared/SharedLedgerStore.swift
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.jack.flowledger.widget
+        PRODUCT_BUNDLE_IDENTIFIER: com.jack.flowledger.keychainprobe
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: 5.0
+        CODE_SIGN_ENTITLEMENTS: Probe.entitlements
 schemes:
   FlowLedgerKeychainProbe:
     build:
